@@ -1,6 +1,4 @@
 /*
- ** Copyright (c) Microsoft Corporation
- *
  *  File: ectest.cpp
  *  Description: An application that allows us to call ACPI Methods to validate EC functionality
  *
@@ -66,7 +64,6 @@ BOOL GetGUIDPath(
                              DeviceInfoSet,
                              DeviceIndex,
                              &DeviceInfoData)) {
-      // Read Device instance path and check for ACPI_HAL\PNP0C08 as this is the ACPI driver
       DEVPROPTYPE PropertyType;
       DWORD RequiredSize = 0;
       BYTE PropertyBuffer[128];
@@ -82,7 +79,6 @@ BOOL GetGUIDPath(
       
       if(RequiredSize > 0) {
           printf("Found matching Class GUID: %ls\n", (wchar_t *)PropertyBuffer);
-          // Check if string contains PNP0C08 then this is our main ACPI device
           if( wcsstr((wchar_t*)PropertyBuffer,name) ) {
             bRet = SetupDiGetDevicePropertyW(
                                     DeviceInfoSet,

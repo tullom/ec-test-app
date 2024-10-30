@@ -1,13 +1,9 @@
 /*++
 
-Copyright (c) 1990-2000  Microsoft Corporation
-
 Module Name:
-
     device.c - Device handling events for example driver.
 
 Abstract:
-
     This is a C version of a very simple sample driver that illustrates
     how to use the driver framework and demonstrates best practices.
 

@@ -35,7 +35,7 @@ devcon remove ACPI\ACPI1234
 devcon install ectest.inf ACPI\ACPI1234
 ```
 
-You will get a pop-up saying that the certificate is not tested and you can choose to install anyways. Otherwise if you install certificate in your certstore under tursted root you won't get this.
+You will get a pop-up saying that the certificate is not tested and you can choose to install anyways. Otherwise if you install certificate in your certstore under trusted root you won't get this.
 To run the test you can simply use the following
 ```
 E:\>ectest -acpi \_SB.ECT0.TFST
