@@ -1,4 +1,6 @@
 /*
+ ** Copyright (c) Microsoft Corporation
+ *
  *  File: ectest.cpp
  *  Description: An application that allows us to call ACPI Methods to validate EC functionality
  *
@@ -22,6 +24,7 @@ _Analysis_mode_(_Analysis_code_type_user_code_)
 #include <Devpkey.h>
 #include <Acpiioct.h>
 #include <devioctl.h>
+#include "..\inc\ectest.h"
 
 #define MAX_ACPIPATH_LENGTH 64
 #define MAX_DEVPATH_LENGTH  64
@@ -64,6 +67,7 @@ BOOL GetGUIDPath(
                              DeviceInfoSet,
                              DeviceIndex,
                              &DeviceInfoData)) {
+      // Read Device instance path and check for ACPI_HAL\PNP0C08 as this is the ACPI driver
       DEVPROPTYPE PropertyType;
       DWORD RequiredSize = 0;
       BYTE PropertyBuffer[128];
@@ -79,6 +83,7 @@ BOOL GetGUIDPath(
       
       if(RequiredSize > 0) {
           printf("Found matching Class GUID: %ls\n", (wchar_t *)PropertyBuffer);
+          // Check if string contains PNP0C08 then this is our main ACPI device
           if( wcsstr((wchar_t*)PropertyBuffer,name) ) {
             bRet = SetupDiGetDevicePropertyW(
                                     DeviceInfoSet,
@@ -185,7 +190,7 @@ int EvaluateAcpi(
         Argument = (ACPI_METHOD_ARGUMENT_V1 *)(Argument->Data + Argument->DataLength);
     }
 
-    printf("ACPI Raw Output:\n");
+    printf("\n\nACPI Raw Output:\n");
     for(ULONG i=0; i < AcpiOut->Length; i++) {
         printf(" 0x%x",((BYTE *)AcpiOut)[i]);
     }
@@ -270,6 +275,44 @@ exit:
     return status;
 }
 
+
+int GetKMDFNotification(
+    _In_ HANDLE hDevice
+    )
+{
+    BOOL bRc;
+    ULONG bytesReturned;
+    NotificationRsp_t notify_response;
+    NotificationReq_t notify_request;
+   
+    printf("\nCalling DeviceIoControl IOCTL_GET_NOTIFICATION\n");
+    notify_request.type = 0x1;
+
+    bRc = DeviceIoControl ( hDevice,
+                            (DWORD) IOCTL_GET_NOTIFICATION,
+                            &notify_request,
+                            sizeof(notify_request),
+                            &notify_response,
+                            sizeof( notify_response),
+                            &bytesReturned,
+                            NULL
+                            );
+
+    if ( !bRc )
+    {
+        printf ( "Error in DeviceIoControl : %d", GetLastError());
+        return ERROR_INVALID_PARAMETER;
+    }
+
+    // Print out notification details
+    printf("        count: 0x%llx\n", notify_response.count);
+    printf("    timestamp: 0x%llx\n", notify_response.timestamp);
+    printf("    lastevent: 0x%x\n", notify_response.lastevent);
+
+    return ERROR_SUCCESS;
+}
+
+
 /*
  * Function: int main
  *
@@ -296,6 +339,13 @@ main(
     if(status == ERROR_SUCCESS) {
         status = GetKMDFDriverHandle(&hDevice);
         status = EvaluateAcpi(hDevice);
+        status = GetKMDFNotification(hDevice);
+        if(hDevice != NULL) {
+            CloseHandle(hDevice);
+        }
     }
+
+    // Hang out here before we try to terminate
+    Sleep(10000);
     return status;
 }
