@@ -13,11 +13,7 @@ Abstract:
 
 --*/
 
-#pragma warning(disable: 4083)
-#pragma warning(disable: 4005)
-
 #include "driver.h"
-#include <stdint.h>
 #include <stdio.h>
 #include <acpiioct.h>
 #include "wdm.h"

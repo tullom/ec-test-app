@@ -3,11 +3,11 @@
 #define IOCTL_GET_NOTIFICATION 0x1
 
 typedef struct {
-    uint64_t count;
-    uint64_t timestamp;
-    uint32_t  lastevent;
+    UINT64 count;
+    UINT64 timestamp;
+    UINT32  lastevent;
 } NotificationRsp_t;
 
 typedef struct {
-    uint8_t type;
+    UINT8 type;
 } NotificationReq_t;
