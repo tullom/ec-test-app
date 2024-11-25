@@ -313,6 +313,40 @@ int GetKMDFNotification(
 }
 
 
+int ReadRxBuffer(
+    _In_ HANDLE hDevice
+    )
+{
+    BOOL bRc;
+    ULONG bytesReturned;
+    ULONG inbuf;
+    RxBufferRsp_t rxrsp;
+   
+    printf("\nCalling DeviceIoControl IOCTL_GET_RX_BUFFER\n");
+
+    bRc = DeviceIoControl ( hDevice,
+                            (DWORD) IOCTL_READ_RX_BUFFER,
+                            &inbuf,
+                            sizeof(inbuf),
+                            &rxrsp,
+                            sizeof(rxrsp),
+                            &bytesReturned,
+                            NULL
+                            );
+
+    if ( !bRc )
+    {
+        printf ( "Error in DeviceIoControl : %d", GetLastError());
+        return ERROR_INVALID_PARAMETER;
+    }
+
+    // Print out notification details
+    printf("         data: 0x%llx\n", rxrsp.data);
+
+    return ERROR_SUCCESS;
+}
+
+
 /*
  * Function: int main
  *
@@ -340,6 +374,7 @@ main(
         status = GetKMDFDriverHandle(&hDevice);
         status = EvaluateAcpi(hDevice);
         status = GetKMDFNotification(hDevice);
+        status = ReadRxBuffer(hDevice);
         if(hDevice != NULL) {
             CloseHandle(hDevice);
         }

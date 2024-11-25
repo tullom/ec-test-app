@@ -362,6 +362,43 @@ ECTestEvtIoDeviceControl(
         rsp->lastevent = m_NotifyStats.lastevent;
 
         break;
+
+    case IOCTL_READ_RX_BUFFER:
+        size_t rxSize = 0;
+        RxBufferRsp_t *rxrsp = NULL;
+
+        // Determine the size of output buffer and only give this much space to ACPI request
+        status = WdfRequestRetrieveOutputBuffer(Request, 0, &rxrsp, &rxSize);
+        if(!NT_SUCCESS(status)) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        PHYSICAL_ADDRESS physicalAddress;
+        PVOID virtualAddress;
+        ULONG64 value;
+
+        // Set the physical address
+        physicalAddress.QuadPart = SBSAQEMU_SHARED_MEM_BASE;
+
+        // Map the physical address to a virtual address
+        virtualAddress = MmMapIoSpaceEx(physicalAddress, sizeof(ULONG64), PAGE_READONLY);
+
+        if (virtualAddress == NULL) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        // Read the value from the virtual address
+        value = *(volatile ULONG64*)virtualAddress;
+
+        // Unmap the virtual address
+        MmUnmapIoSpace(virtualAddress, sizeof(ULONG64));
+        
+        rxrsp->data = value;
+
+        break;
+
     default:
         status = STATUS_INVALID_PARAMETER;
         break;

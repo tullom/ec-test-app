@@ -8,6 +8,13 @@ Device (ECT0) {
 
   Name (NEVT, 0x1234) 
 
+  // Shared memory region
+  OperationRegion (SMEM, SystemMemory, 0x10060000000, 0x8)
+  Field (SMEM, AnyAcc, NoLock, Preserve)
+  {
+      DATA, 64
+  }
+
   Method (_STA) {
     Return (0xf)
   }
@@ -17,14 +24,23 @@ Device (ECT0) {
   }
 
   Method(TEST, 0x0, NotSerialized) {  
+    MEMW()
     TNFY()
     Return( TFWS() )
+  }
+
+  Method (MEMW, 0, NotSerialized) {
+      STORE(0xDEADD00D,DATA)
+  }
+
+  Method (MEMR, 0, NotSerialized) {
+      Return(DATA)
   }
 
   // EC_SVC_MANAGEMENT 330c1273-fde5-4757-9819-5b6539037502
   Method(TFWS, 0x0, Serialized) {  
     If(LEqual(\_SB.FFA0.AVAL,One)) {
-      Name(BUFF, Buffer(128){})
+      Name(BUFF, Buffer(30){})
     
       CreateByteField(BUFF,0,STAT) // Out – Status for req/rsp 
       CreateByteField(BUFF,1,LENG) // In/Out – Bytes in req, updates bytes returned 
@@ -34,7 +50,7 @@ Device (ECT0) {
       CreateField(BUFF,208,32,FWSD) // Output Data
       // x0 -> STAT
 
-      Store(0x20, LENG)
+      Store(20, LENG)
       Store(0x1, CMDD) // EC_CAP_GET_FW_STATE
       Store(ToUUID("330c1273-fde5-4757-9819-5b6539037502"), UUID)
       Store(Store(BUFF, \_SB_.FFA0.FFAC), BUFF)
@@ -52,7 +68,7 @@ Device (ECT0) {
   // Call test API to send notification event
   Method(TNFY, 0x0, Serialized) {  
     If(LEqual(\_SB.FFA0.AVAL,One)) {
-      Name(BUFF, Buffer(128){})
+      Name(BUFF, Buffer(30){})
     
       CreateByteField(BUFF,1,LENG) // In/Out – Bytes in req, updates bytes returned 
       CreateField(BUFF,16,128,UUID) // UUID of service 
