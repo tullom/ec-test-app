@@ -1,4 +1,7 @@
 /*++
+
+Copyright (c) 1990-2000  Microsoft Corporation
+
 Module Name:
 
     queue.c
@@ -13,10 +16,82 @@ Abstract:
 #include "driver.h"
 #include <stdio.h>
 #include <acpiioct.h>
+#include "wdm.h"
+#include "wdmguid.h"
+#include "..\inc\ectest.h"
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text (PAGE, ECTestQueueInitialize)
 #endif
+
+// Globals
+NotificationRsp_t m_NotifyStats = {0};
+
+/**
+ * Function: NTSTATUS NotificationCallback
+ *
+ * Description: 
+ * Callback function for handling ACPI notifications.
+ *
+ * This function is called when an ACPI notification is received. It updates
+ * the notification statistics with the current timestamp and the notification
+ * value.
+ *
+ * Parameters:
+ * Context - A pointer to the context information for the callback.
+ * NotifyValue - The value associated with the ACPI notification.
+ *
+ * Return Value:
+ * VOID
+ *
+ */
+VOID NotificationCallback(
+    PVOID Context,
+    ULONG NotifyValue
+    )
+{
+    UNREFERENCED_PARAMETER(Context);
+
+    LARGE_INTEGER timestamp;
+    KeQuerySystemTimePrecise(&timestamp);
+
+    m_NotifyStats.count++;
+    m_NotifyStats.timestamp = timestamp.QuadPart;
+    m_NotifyStats.lastevent = NotifyValue;
+}
+
+/*
+ * Function: NTSTATUS SetupNotification
+ *
+ * Description: 
+ * Sets up ACPI notifications for the specified device.
+ *
+ * Parameters:
+ * device - The WDFDEVICE object representing the device.
+ *
+ * Return Value:
+ * NTSTATUS status code indicating the success or failure of the operation.
+ *
+ */
+NTSTATUS SetupNotification(WDFDEVICE device)
+{
+    ACPI_INTERFACE_STANDARD2 acpiInterface;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    status = WdfFdoQueryForInterface(device,
+                                     &GUID_ACPI_INTERFACE_STANDARD2,
+                                     (PINTERFACE) &acpiInterface,
+                                     sizeof(ACPI_INTERFACE_STANDARD2),
+                                     1,
+                                     NULL);
+    
+    if (NT_SUCCESS(status)) {
+        status = acpiInterface.RegisterForDeviceNotifications(acpiInterface.Context,
+                        NotificationCallback, NULL);
+    }
+    return status;
+}
+
 
 /*
  * Function: NTSTATUS ECTestQueueInitialize
@@ -66,6 +141,8 @@ ECTestQueueInitialize(
         return status;
     }
 
+
+    status = SetupNotification(Device);
     return status;
 }
 
@@ -261,6 +338,66 @@ ECTestEvtIoDeviceControl(
 
         // Request will be completed later in work item callback
         return;
+    case IOCTL_GET_NOTIFICATION:
+        size_t reqSize = 0;
+        size_t rspSize = 0;
+        NotificationReq_t *req = NULL;
+        NotificationRsp_t *rsp = NULL;
+
+        status = WdfRequestRetrieveInputBuffer(Request, 0, &req, &reqSize);
+        if(!NT_SUCCESS(status)) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+    
+        // Determine the size of output buffer and only give this much space to ACPI request
+        status = WdfRequestRetrieveOutputBuffer(Request, 0, &rsp, &rspSize);
+        if(!NT_SUCCESS(status)) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        rsp->count = m_NotifyStats.count;
+        rsp->timestamp = m_NotifyStats.timestamp;
+        rsp->lastevent = m_NotifyStats.lastevent;
+
+        break;
+
+    case IOCTL_READ_RX_BUFFER:
+        size_t rxSize = 0;
+        RxBufferRsp_t *rxrsp = NULL;
+
+        // Determine the size of output buffer and only give this much space to ACPI request
+        status = WdfRequestRetrieveOutputBuffer(Request, 0, &rxrsp, &rxSize);
+        if(!NT_SUCCESS(status)) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        PHYSICAL_ADDRESS physicalAddress;
+        PVOID virtualAddress;
+        ULONG64 value;
+
+        // Set the physical address
+        physicalAddress.QuadPart = SBSAQEMU_SHARED_MEM_BASE;
+
+        // Map the physical address to a virtual address
+        virtualAddress = MmMapIoSpaceEx(physicalAddress, sizeof(ULONG64), PAGE_READONLY);
+
+        if (virtualAddress == NULL) {
+            status = STATUS_INSUFFICIENT_RESOURCES;
+            break;
+        }
+
+        // Read the value from the virtual address
+        value = *(volatile ULONG64*)virtualAddress;
+
+        // Unmap the virtual address
+        MmUnmapIoSpace(virtualAddress, sizeof(ULONG64));
+        
+        rxrsp->data = value;
+
+        break;
 
     default:
         status = STATUS_INVALID_PARAMETER;
