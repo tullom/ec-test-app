@@ -84,8 +84,9 @@ Device (ECT0) {
   Method(RXDB, 0x1, Serialized) {
     Name(BUFF, Buffer(256){})
 
-    // Loop forever until we find our seq
-    While (One) {
+    Local0 = 0
+    // Loop for 500ms looking for data
+    While (Local0 < 100) {
       If(LEqual(And(RB0,0xFFFF),Arg0)) {
         CreateField(BUFF, 0, Multiply(And(ShiftRight(RB0,16),0xFFFF),8), XB0)
         Store(RE0,BUFF); Store(0,RB0); Return( XB0 )
@@ -118,8 +119,8 @@ Device (ECT0) {
         CreateField(BUFF, 0, Multiply(And(ShiftRight(RB7,16),0xFFFF),8), XB7)
         Store(RE7,BUFF); Store(0,RB7); Return( XB7 )
       }
-
       Sleep(5)
+      Local0++
     }
 
     // If we get here didn't find a matching sequence number
@@ -134,8 +135,9 @@ Device (ECT0) {
       Store(Add(ShiftLeft(1,32),Add(ShiftLeft(Arg1,16),SEQN)),TBX)
       Increment(SEQN)
       
-      // Loop until we find a free entry to populate
-      While(One) {
+      Local0 = 0
+      // Loop for 500ms looking for data
+      While (Local0 < 100) {
         If(LEqual(And(TB0,0xFFFF),0x0)) {
           Store(TBX,TB0); Store(Arg0,TE0); Return( And(TBX,0xFFFF) )
         }
@@ -161,6 +163,7 @@ Device (ECT0) {
           Store(TBX,TB7); Store(Arg0,TE7); Return( And(TBX,0xFFFF) )
         }
         Sleep(5)
+        Local0++
       }
   }
 
