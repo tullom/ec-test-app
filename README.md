@@ -1,5 +1,16 @@
 # ec-test-app
-Test app to exercise EC functionality through ACPI from the OS
+
+## Overview
+This repo includes EC high level documentation, ACPI sample code for EC communication and EC test application to test EC interfaces.
+
+## Features and Status
+```
+docs  - Documentation for high level EC requirements and integration guide
+exe   - User mode CLI to call and evaluate ACPI functions to test EC interfaces
+inc   - Shared header files between test app and kernel mode driver
+kmdf  - Kernel mode driver that test app communicates with to evaluate ACPI methods
+uefi  - Sample EC ACPI tables for secure EC. Includes thermal and notification examples
+```
 
 ## Environment Setup
 Download recent EWDK and mount ISO
