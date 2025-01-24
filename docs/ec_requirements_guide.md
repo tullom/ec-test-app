@@ -8,15 +8,7 @@ Some examples depicted herein are provided for illustration only and are
 fictitious. No real association or connection is intended or should be
 inferred.
 
-This document does not provide you with any legal rights to any
-intellectual property in any Microsoft product. This document is
-confidential and proprietary to Microsoft. It is disclosed and can be
-used only pursuant to a non-disclosure agreement.
-
 © 2022 Microsoft. All rights reserved.
-
-CONFIDENTIAL.  Distribution Only to Partners Under
-Nondisclosure. Microsoft makes no warranties, express or implied. 
 
 Please refer to [<span class="underline">Microsoft
 Trademarks</span>](http://www.microsoft.com/en-us/legal/intellectualproperty/Trademarks/EN-US.aspx)
@@ -325,6 +317,12 @@ in the secure world running in a dedicated SP. In a system without
 secure world or where communication to EC is not desired to be secure
 all the ACPI functions can be mapped directly to data from the EC
 operation region.
+
+The following github projects provide sample implementations of this interface:
+
+[ACPI EC samples, Kernel mode test driver, User mode test driver](https://github.com/opendevicepartnership/ec-test-app)<br>
+[Sample Secure Partition Service for EC services in RUST](https://github.com/opendevicepartnership/haf-ec-service)<br>
+[RUST crate for FFA implementation in secure partition](https://github.com/opendevicepartnership/ffa)<br>
 
 The following GUID’s have been designed to represent each service
 operating in the secure partition for EC.
