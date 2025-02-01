@@ -46,7 +46,7 @@ Cargo.toml image to pick up your local ffa crate.
 
 ```
 [patch.crates-io]
-#ffa = { git = "https://github.com/pop-project/ffa" }
+#ffa = { git = "https://github.com/OpenDevicePartnership/ffa" }
 ffa = { path = "/home/…/ffa" }
 ```
 
