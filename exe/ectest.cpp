@@ -155,7 +155,7 @@ int EvaluateAcpi(
 
     if ( !bRc )
     {
-        printf ( "Error in DeviceIoControl : %d", GetLastError());
+        printf ( "Error in DeviceIoControl : %d\n", GetLastError());
         return ERROR_INVALID_PARAMETER;
     }
 
@@ -275,11 +275,14 @@ exit:
     return status;
 }
 
-
 int GetKMDFNotification(
     _In_ HANDLE hDevice
     )
 {
+#ifndef EC_TEST_NOTIFICATIONS
+    UNREFERENCED_PARAMETER(hDevice);
+    printf("EC_TEST_NOTIFICATIONS not defined.\n");
+#else
     BOOL bRc;
     ULONG bytesReturned;
     NotificationRsp_t notify_response;
@@ -309,14 +312,20 @@ int GetKMDFNotification(
     printf("    timestamp: 0x%llx\n", notify_response.timestamp);
     printf("    lastevent: 0x%x\n", notify_response.lastevent);
 
+#endif // EC_TEST_NOTIFICATIONS
+
     return ERROR_SUCCESS;
 }
-
 
 int ReadRxBuffer(
     _In_ HANDLE hDevice
     )
 {
+#ifndef EC_TEST_SHARED_BUFFER
+    UNREFERENCED_PARAMETER(hDevice);
+    printf("EC_TEST_SHARED_BUFFER not defined.\n");
+#else
+
     BOOL bRc;
     ULONG bytesReturned;
     ULONG inbuf;
@@ -342,6 +351,7 @@ int ReadRxBuffer(
 
     // Print out notification details
     printf("         data: 0x%llx\n", rxrsp.data);
+#endif // EC_TEST_SHARED_BUFFER
 
     return ERROR_SUCCESS;
 }
@@ -373,14 +383,19 @@ main(
     if(status == ERROR_SUCCESS) {
         status = GetKMDFDriverHandle(&hDevice);
         status = EvaluateAcpi(hDevice);
+ 
+#ifdef EC_TEST_NOTIFICATIONS 
         status = GetKMDFNotification(hDevice);
+#endif // EC_TEST_NOTIFICATIONS
+
+#ifdef EC_TEST_SHARED_BUFFER
         status = ReadRxBuffer(hDevice);
+ #endif // EC_TEST_SHARED_BUFFER
+        
         if(hDevice != NULL) {
             CloseHandle(hDevice);
         }
     }
 
-    // Hang out here before we try to terminate
-    Sleep(10000);
     return status;
 }

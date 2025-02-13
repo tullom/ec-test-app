@@ -24,6 +24,8 @@ Abstract:
 #pragma alloc_text (PAGE, ECTestQueueInitialize)
 #endif
 
+
+#ifdef EC_TEST_NOTIFICATIONS
 // Globals
 NotificationRsp_t m_NotifyStats = {0};
 
@@ -91,6 +93,7 @@ NTSTATUS SetupNotification(WDFDEVICE device)
     }
     return status;
 }
+#endif // EC_TEST_NOTIFICATIONS
 
 
 /*
@@ -141,8 +144,10 @@ ECTestQueueInitialize(
         return status;
     }
 
-
+#ifdef EC_TEST_NOTIFICATIONS
     status = SetupNotification(Device);
+#endif // EC_TEST_NOTIFICATIONS
+
     return status;
 }
 
@@ -338,6 +343,8 @@ ECTestEvtIoDeviceControl(
 
         // Request will be completed later in work item callback
         return;
+
+#ifdef EC_TEST_NOTIFICATIONS
     case IOCTL_GET_NOTIFICATION:
         size_t reqSize = 0;
         size_t rspSize = 0;
@@ -360,9 +367,10 @@ ECTestEvtIoDeviceControl(
         rsp->count = m_NotifyStats.count;
         rsp->timestamp = m_NotifyStats.timestamp;
         rsp->lastevent = m_NotifyStats.lastevent;
-
         break;
+#endif // EC_TEST_NOTIFICATIONS
 
+#ifdef EC_TEST_SHARED_BUFFER
     case IOCTL_READ_RX_BUFFER:
         size_t rxSize = 0;
         RxBufferRsp_t *rxrsp = NULL;
@@ -396,8 +404,8 @@ ECTestEvtIoDeviceControl(
         MmUnmapIoSpace(virtualAddress, sizeof(ULONG64));
         
         rxrsp->data = value;
-
         break;
+#endif // EC_TEST_SHARED_BUFFER
 
     default:
         status = STATUS_INVALID_PARAMETER;
