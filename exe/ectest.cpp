@@ -275,14 +275,24 @@ exit:
     return status;
 }
 
+/*
+ * Function: int GetKMDFNotification
+ *
+ * Description:
+ * The GetKMDFNotification function retrieves a notification from a Kernel-Mode Driver Framework (KMDF) driver.
+ * It sends a request to the driver and receives the notification details.
+ *
+ * Parameters:
+ * HANDLE hDevice: A handle to the device from which the notification is to be retrieved.
+ *
+ * Return Value:
+ * Returns ERROR_SUCCESS if the notification is successfully retrieved, otherwise returns ERROR_INVALID_PARAMETER.
+ */
+#ifdef EC_TEST_NOTIFICATIONS
 int GetKMDFNotification(
     _In_ HANDLE hDevice
     )
 {
-#ifndef EC_TEST_NOTIFICATIONS
-    UNREFERENCED_PARAMETER(hDevice);
-    printf("EC_TEST_NOTIFICATIONS not defined.\n");
-#else
     BOOL bRc;
     ULONG bytesReturned;
     NotificationRsp_t notify_response;
@@ -312,20 +322,28 @@ int GetKMDFNotification(
     printf("    timestamp: 0x%llx\n", notify_response.timestamp);
     printf("    lastevent: 0x%x\n", notify_response.lastevent);
 
-#endif // EC_TEST_NOTIFICATIONS
-
     return ERROR_SUCCESS;
 }
+#endif // EC_TEST_NOTIFICATIONS
 
+/*
+ * Function: int ReadRxBuffer
+ *
+ * Description:
+ * The ReadRxBuffer function reads the receive buffer from a Kernel-Mode Driver Framework (KMDF) driver.
+ * It sends a request to the driver and receives the buffer data.
+ *
+ * Parameters:
+ * HANDLE hDevice: A handle to the device from which the receive buffer is to be read.
+ *
+ * Return Value:
+ * Returns ERROR_SUCCESS if the receive buffer is successfully read, otherwise returns ERROR_INVALID_PARAMETER.
+ */
+#ifdef EC_TEST_SHARED_BUFFER
 int ReadRxBuffer(
     _In_ HANDLE hDevice
     )
 {
-#ifndef EC_TEST_SHARED_BUFFER
-    UNREFERENCED_PARAMETER(hDevice);
-    printf("EC_TEST_SHARED_BUFFER not defined.\n");
-#else
-
     BOOL bRc;
     ULONG bytesReturned;
     ULONG inbuf;
@@ -351,10 +369,10 @@ int ReadRxBuffer(
 
     // Print out notification details
     printf("         data: 0x%llx\n", rxrsp.data);
-#endif // EC_TEST_SHARED_BUFFER
 
     return ERROR_SUCCESS;
 }
+#endif // EC_TEST_SHARED_BUFFER
 
 
 /*
@@ -378,23 +396,29 @@ main(
     _In_reads_(argc) char* argv[]
     )
 {
-    HANDLE hDevice;
-    int status = ParseCmdline(argc,argv);
-    if(status == ERROR_SUCCESS) {
-        status = GetKMDFDriverHandle(&hDevice);
-        status = EvaluateAcpi(hDevice);
- 
-#ifdef EC_TEST_NOTIFICATIONS 
-        status = GetKMDFNotification(hDevice);
+    HANDLE hDevice = NULL;
+    int status = ParseCmdline(argc, argv);
+    if (status != ERROR_SUCCESS) goto exit;
+
+    status = GetKMDFDriverHandle(&hDevice);
+    if (status != ERROR_SUCCESS) goto exit;
+
+    status = EvaluateAcpi(hDevice);
+    if (status != ERROR_SUCCESS) goto exit;
+
+#ifdef EC_TEST_NOTIFICATIONS
+    status = GetKMDFNotification(hDevice);
+    if (status != ERROR_SUCCESS) goto exit;
 #endif // EC_TEST_NOTIFICATIONS
 
 #ifdef EC_TEST_SHARED_BUFFER
-        status = ReadRxBuffer(hDevice);
- #endif // EC_TEST_SHARED_BUFFER
-        
-        if(hDevice != NULL) {
-            CloseHandle(hDevice);
-        }
+    status = ReadRxBuffer(hDevice);
+    if (status != ERROR_SUCCESS) goto exit;
+#endif // EC_TEST_SHARED_BUFFER
+
+exit:
+    if (hDevice != NULL) {
+        CloseHandle(hDevice);
     }
 
     return status;
