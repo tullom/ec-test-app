@@ -155,7 +155,7 @@ int EvaluateAcpi(
 
     if ( !bRc )
     {
-        printf ( "Error in DeviceIoControl : %d", GetLastError());
+        printf ( "Error in DeviceIoControl : %d\n", GetLastError());
         return ERROR_INVALID_PARAMETER;
     }
 
@@ -275,7 +275,20 @@ exit:
     return status;
 }
 
-
+/*
+ * Function: int GetKMDFNotification
+ *
+ * Description:
+ * The GetKMDFNotification function retrieves a notification from a Kernel-Mode Driver Framework (KMDF) driver.
+ * It sends a request to the driver and receives the notification details.
+ *
+ * Parameters:
+ * HANDLE hDevice: A handle to the device from which the notification is to be retrieved.
+ *
+ * Return Value:
+ * Returns ERROR_SUCCESS if the notification is successfully retrieved, otherwise returns ERROR_INVALID_PARAMETER.
+ */
+#ifdef EC_TEST_NOTIFICATIONS
 int GetKMDFNotification(
     _In_ HANDLE hDevice
     )
@@ -311,8 +324,22 @@ int GetKMDFNotification(
 
     return ERROR_SUCCESS;
 }
+#endif // EC_TEST_NOTIFICATIONS
 
-
+/*
+ * Function: int ReadRxBuffer
+ *
+ * Description:
+ * The ReadRxBuffer function reads the receive buffer from a Kernel-Mode Driver Framework (KMDF) driver.
+ * It sends a request to the driver and receives the buffer data.
+ *
+ * Parameters:
+ * HANDLE hDevice: A handle to the device from which the receive buffer is to be read.
+ *
+ * Return Value:
+ * Returns ERROR_SUCCESS if the receive buffer is successfully read, otherwise returns ERROR_INVALID_PARAMETER.
+ */
+#ifdef EC_TEST_SHARED_BUFFER
 int ReadRxBuffer(
     _In_ HANDLE hDevice
     )
@@ -345,6 +372,7 @@ int ReadRxBuffer(
 
     return ERROR_SUCCESS;
 }
+#endif // EC_TEST_SHARED_BUFFER
 
 
 /*
@@ -368,19 +396,30 @@ main(
     _In_reads_(argc) char* argv[]
     )
 {
-    HANDLE hDevice;
-    int status = ParseCmdline(argc,argv);
-    if(status == ERROR_SUCCESS) {
-        status = GetKMDFDriverHandle(&hDevice);
-        status = EvaluateAcpi(hDevice);
-        status = GetKMDFNotification(hDevice);
-        status = ReadRxBuffer(hDevice);
-        if(hDevice != NULL) {
-            CloseHandle(hDevice);
-        }
+    HANDLE hDevice = NULL;
+    int status = ParseCmdline(argc, argv);
+    if (status != ERROR_SUCCESS) goto exit;
+
+    status = GetKMDFDriverHandle(&hDevice);
+    if (status != ERROR_SUCCESS) goto exit;
+
+    status = EvaluateAcpi(hDevice);
+    if (status != ERROR_SUCCESS) goto exit;
+
+#ifdef EC_TEST_NOTIFICATIONS
+    status = GetKMDFNotification(hDevice);
+    if (status != ERROR_SUCCESS) goto exit;
+#endif // EC_TEST_NOTIFICATIONS
+
+#ifdef EC_TEST_SHARED_BUFFER
+    status = ReadRxBuffer(hDevice);
+    if (status != ERROR_SUCCESS) goto exit;
+#endif // EC_TEST_SHARED_BUFFER
+
+exit:
+    if (hDevice != NULL) {
+        CloseHandle(hDevice);
     }
 
-    // Hang out here before we try to terminate
-    Sleep(10000);
     return status;
 }
