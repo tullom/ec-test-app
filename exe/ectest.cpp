@@ -42,6 +42,7 @@ static char gMethodName[MAX_ACPIPATH_LENGTH];
 // Global event handle
 HANDLE hExitEvent;
 #endif
+
 /*
  * Function: BOOL GetGUIDPath
  *
@@ -57,13 +58,13 @@ HANDLE hExitEvent;
  * Returns TRUE if the device path is successfully retrieved, otherwise returns FALSE.
  */
 BOOL GetGUIDPath(
-    _In_ GUID GUID_DEVCLASS_SYSTEM, 
+    _In_ GUID GUID_DEVCLASS_SYSTEM,
     _In_ wchar_t *name
     )
 {
     BOOL bRet = TRUE;
 
-    // Get devices of ACPI class there should only be one on the system 
+    // Get devices of ACPI class there should only be one on the system
    HDEVINFO DeviceInfoSet = SetupDiGetClassDevs(&GUID_DEVCLASS_SYSTEM, NULL, NULL, DIGCF_PRESENT);
    SP_DEVINFO_DATA DeviceInfoData;
    DWORD DeviceIndex = 0;
@@ -87,7 +88,7 @@ BOOL GetGUIDPath(
                             sizeof(PropertyBuffer),
                             &RequiredSize,
                             0);
-      
+
       if(RequiredSize > 0) {
           printf("Found matching Class GUID: %ls\n", (wchar_t *)PropertyBuffer);
           // Check if string contains PNP0C08 then this is our main ACPI device
@@ -221,9 +222,9 @@ int EvaluateAcpi(
  * Returns ERROR_SUCCESS if the ACPI method name is successfully set, otherwise returns ERROR_INVALID_PARAMETER.
  */
 int ParseCmdline(
-    _In_ int argc, 
+    _In_ int argc,
     _In_ char ** argv
-    ) 
+    )
 {
     if (argc > 2)  {
         strncpy_s(gMethodName,argv[2],MAX_ACPIPATH_LENGTH);
@@ -245,130 +246,46 @@ int ParseCmdline(
  * It searches for the device path using a specified device class GUID and device name, and then opens the device.
  *
  * Parameters:
+ * DWORD flags: Flags to open file handle with
  * HANDLE *hDevice: A pointer to a handle that will receive the device handle.
  *
  * Return Value:
  * Returns ERROR_SUCCESS if the device handle is successfully retrieved, otherwise returns ERROR_INVALID_HANDLE.
 */
 int GetKMDFDriverHandle(
+    _In_ DWORD flags,
     _Out_ HANDLE *hDevice
     )
 {
+    static bool bDeviceFound = FALSE;
     int status = ERROR_SUCCESS;
 
-    if ( !GetGUIDPath(GUID_DEVCLASS_ECTEST,L"ACPI1234") )
+    if ( !bDeviceFound && !GetGUIDPath(GUID_DEVCLASS_ECTEST,L"ACPI1234") )
     {
         status = ERROR_INVALID_HANDLE;
-        goto exit;
+        goto CleanUp;
     }
 
+    bDeviceFound = TRUE;
     printf("DevicePath: %ws\n", gDevicePath);
-
     *hDevice = CreateFile(gDevicePath,
                          GENERIC_READ|GENERIC_WRITE,
                          FILE_SHARE_READ | FILE_SHARE_WRITE,
                          NULL,
                          OPEN_EXISTING,
-                         0,
+                         flags,
                          NULL );
 
     if (*hDevice == INVALID_HANDLE_VALUE) {
         printf("Failed to open device. Error %d\n",GetLastError());
         status = ERROR_INVALID_HANDLE;
-        goto exit;
+        goto CleanUp;
     }
 
     printf("Opened device successfully\n");
-exit:
+CleanUp:
     return status;
 }
-
-/*
- * Function: int GetKMDFNotification
- *
- * Description:
- * The GetKMDFNotification function retrieves a notification from a Kernel-Mode Driver Framework (KMDF) driver.
- * It sends a request to the driver and receives the notification details.
- *
- * Parameters:
- * HANDLE hDevice: A handle to the device from which the notification is to be retrieved.
- *
- * Return Value:
- * Returns ERROR_SUCCESS if the notification is successfully retrieved, otherwise returns ERROR_INVALID_PARAMETER.
- */
-#ifdef EC_TEST_NOTIFICATIONS
-int GetKMDFNotification(
-    _In_ HANDLE hDevice
-    )
-{
-    BOOL bRc;
-    ULONG bytesReturned;
-    NotificationRsp_t notify_response;
-    NotificationReq_t notify_request;
-    OVERLAPPED overlapped = {0};
-    int status = ERROR_SUCCESS;
-
-    overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-    if (overlapped.hEvent == NULL) {
-        printf ( "Error in CreateEvent : %d\n", GetLastError());
-        return ERROR_INVALID_PARAMETER;
-    }
-   
-    //printf("\n***       Calling DeviceIoControl IOCTL_GET_NOTIFICATION\n");
-    notify_request.type = 0x1;
-
-    bRc = DeviceIoControl ( hDevice,
-                            (DWORD) IOCTL_GET_NOTIFICATION,
-                            &notify_request,
-                            sizeof(notify_request),
-                            &notify_response,
-                            sizeof( notify_response),
-                            &bytesReturned,
-                            &overlapped
-                            );
-    if (!bRc && GetLastError() == ERROR_IO_PENDING) {
-        HANDLE events[2] = { overlapped.hEvent, hExitEvent };
-        DWORD waitResult = WaitForMultipleObjects(2, events, FALSE, INFINITE);
-        switch (waitResult) {
-            case WAIT_OBJECT_0:
-                // DeviceIoControl completed
-                if (!GetOverlappedResult(hDevice, &overlapped, &bytesReturned, TRUE)) {
-                    printf("Error in GetOverlappedResult: %d\n", GetLastError());
-                    status = ERROR_INVALID_PARAMETER;
-                    goto Exit;
-                } else {
-                    status = ERROR_SUCCESS;
-                }
-                break;
-            case WAIT_OBJECT_0 + 1:
-                // hExitEvent event is set
-                printf ( "Cancelling Io \n");
-                CancelIo(hDevice);
-                status = ERROR_OPERATION_ABORTED;
-                goto Exit;
-            default:
-                printf ( "Error Waiting for Completion : %d\n", waitResult);
-                status = ERROR_INVALID_PARAMETER;
-                goto Exit;
-        }
-    } else if ( !bRc ) {
-        printf ( "Error in DeviceIoControl : %d\n", GetLastError());
-        status = ERROR_INVALID_PARAMETER;
-        goto Exit;
-    }
-
-    printf("\n***       Received Notification \n");
-    // Print out notification details
-    printf("***                count: 0x%llx\n", notify_response.count);
-    printf("***            timestamp: 0x%llx\n", notify_response.timestamp);
-    printf("***            lastevent: 0x%x\n", notify_response.lastevent);
-
-Exit:
-
-    CloseHandle(overlapped.hEvent);
-    return status;
-}
-#endif // EC_TEST_NOTIFICATIONS
 
 /*
  * Function: int ReadRxBuffer
@@ -392,7 +309,7 @@ int ReadRxBuffer(
     ULONG bytesReturned;
     ULONG inbuf;
     RxBufferRsp_t rxrsp;
-   
+
     printf("\nCalling DeviceIoControl IOCTL_GET_RX_BUFFER\n");
 
     bRc = DeviceIoControl ( hDevice,
@@ -419,48 +336,171 @@ int ReadRxBuffer(
 #endif // EC_TEST_SHARED_BUFFER
 
 #ifdef EC_TEST_NOTIFICATIONS
-// Thread routine
-DWORD WINAPI ThreadRoutine(LPVOID lpParam) {
+/*
+ * Function: DDWORD NotificationThread
+ *
+ * Description:
+ * The NotificationThread function retrieves a notification from a Kernel-Mode Driver Framework (KMDF) driver.
+ * It sends a request to the driver and receives the notification details.
+ *
+ * Parameters:
+ * LPVOID lpParam: A handle to ready event we notfiy after sending IOCTL to wait for events
+ *
+ * Return Value:
+ * Returns ERROR_SUCCESS if the notification is successfully retrieved, otherwise returns ERROR_INVALID_PARAMETER.
+ */
+DWORD WINAPI NotificationThread(LPVOID lpParam) 
+{
     HANDLE hDevice = NULL;
-    DWORD waitResult;
     int status;
-
-    UNREFERENCED_PARAMETER(lpParam);
+    OVERLAPPED overlapped = {0};
+    HANDLE hReadyEvent = (HANDLE)lpParam;
 
     // Open the device. Seperate open is required for the IO to go through.
-    hDevice = CreateFile(gDevicePath,
-                         GENERIC_READ|GENERIC_WRITE,
-                         FILE_SHARE_READ | FILE_SHARE_WRITE,
-                         NULL,
-                         OPEN_EXISTING,
+    status = GetKMDFDriverHandle(
                          FILE_FLAG_OVERLAPPED,
-                         NULL );
+                         &hDevice );
 
     if (hDevice != INVALID_HANDLE_VALUE) {
-        while (TRUE) {
-            // Wait for the exit event or a timeout
-            waitResult = WaitForSingleObject(hExitEvent, 10);
 
-            if (waitResult == WAIT_OBJECT_0) {
-                // Exit event is signaled
-                break;
-            }
+        BOOL bRc;
+        ULONG bytesReturned;
+        NotificationRsp_t notify_response;
+        NotificationReq_t notify_request;
 
-            // Perform the operations
-            status = GetKMDFNotification(hDevice);
-            if (status == ERROR_SUCCESS) {
-#ifdef EC_TEST_SHARED_BUFFER
-                ReadRxBuffer(hDevice);
-#endif
-            }
+        overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+        if (overlapped.hEvent == NULL) {
+            printf ( "Error in CreateEvent : %d\n", GetLastError());
+            goto CleanUp;
         }
-        CloseHandle(hDevice);
+
+        // Loop forever receiving events until we get an exit event
+        for(;;) {
+            printf("\n***       Calling DeviceIoControl IOCTL_GET_NOTIFICATION\n");
+            notify_request.type = 0x1;
+            bRc = DeviceIoControl ( hDevice,
+                                    (DWORD) IOCTL_GET_NOTIFICATION,
+                                    &notify_request,
+                                    sizeof(notify_request),
+                                    &notify_response,
+                                    sizeof( notify_response),
+                                    &bytesReturned,
+                                    &overlapped
+                                    );
+
+            if (!bRc && GetLastError() == ERROR_IO_PENDING) {
+
+                // If we haven't signalled hReadyEvent yet send it
+                if(hReadyEvent) {
+                    SetEvent(hReadyEvent);
+                    hReadyEvent = NULL;
+                }
+
+                HANDLE events[2] = { overlapped.hEvent, hExitEvent };
+                DWORD waitResult = WaitForMultipleObjects(2, events, FALSE, INFINITE);
+                switch (waitResult) {
+                    case WAIT_OBJECT_0:
+                        // DeviceIoControl completed
+                        if (!GetOverlappedResult(hDevice, &overlapped, &bytesReturned, TRUE)) {
+                            printf("Error in GetOverlappedResult: %d\n", GetLastError());
+                            status = ERROR_INVALID_PARAMETER;
+                            goto CleanUp;
+                        }
+                        break;
+                    case WAIT_OBJECT_0 + 1:
+                        // hExitEvent event is set
+                        printf ( "Cancelling Io \n");
+                        CancelIo(hDevice);
+                        status = ERROR_OPERATION_ABORTED;
+                        goto CleanUp;
+                    default:
+                        printf ( "Error Waiting for Completion : %d\n", waitResult);
+                        status = ERROR_INVALID_PARAMETER;
+                        goto CleanUp;
+                }
+            } else if ( !bRc ) {
+                printf ( "Error in DeviceIoControl : %d\n", GetLastError());
+                status = ERROR_INVALID_PARAMETER;
+                goto CleanUp;
+            }
+
+            // Print out notification details
+            printf("\n***       Received Notification \n");
+            printf("***                count: 0x%llx\n", notify_response.count);
+            printf("***            timestamp: 0x%llx\n", notify_response.timestamp);
+            printf("***            lastevent: 0x%x\n", notify_response.lastevent);
+
+            #ifdef EC_TEST_SHARED_BUFFER
+            ReadRxBuffer(hDevice);
+            #endif
+
+            // Reset the event and wait for next notification
+            ResetEvent(overlapped.hEvent);
+        }
     }
+CleanUp:
+    // Cancel any pending IO
+    if(hDevice) CancelIo(hDevice);
+    if(hDevice) CloseHandle(hDevice);
+    if(overlapped.hEvent) CloseHandle(overlapped.hEvent);
 
     printf("Exiting Notification Thread \n");
     return 0;
 }
-#endif
+
+
+/*
+ * Function: HANDLE StartNotificationListener
+ *
+ * Description:
+ * The StartNotificationListener function creates a thread to listen for notifications and returns a handle to the thread.
+ * It creates an event to signal when the thread is ready and waits for the thread to be ready or terminated.
+ *
+ * Parameters:
+ * None
+ *
+ * Return Value:
+ * Returns a handle to the notification listener thread if successful, otherwise returns NULL.
+ */
+HANDLE StartNotificationListener(void)
+{
+    HANDLE hThread;
+    DWORD dwThreadId;
+
+    HANDLE hReadyEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    if (hReadyEvent == NULL) {
+        return NULL;
+    }
+
+
+    // Create the thread
+    hThread = CreateThread(
+        NULL,                   // Default security attributes
+        0,                      // Default stack size
+        NotificationThread,     // Thread routine
+        hReadyEvent,            // Parameter to thread routine
+        0,                      // Default creation flags
+        &dwThreadId);           // Receive thread identifier
+
+    if (hThread != NULL) {
+        // Wait for the thread ready or termination
+        HANDLE events[2] = { hThread, hReadyEvent };
+        DWORD waitResult = WaitForMultipleObjects(2, events, FALSE, INFINITE);
+        switch (waitResult) {
+            case WAIT_OBJECT_0:
+                printf("Notification Thread Terminated.\n");
+                hThread = NULL;
+                break;
+            case WAIT_OBJECT_0 + 1:
+                printf("hReadyEvent signalled.\n");
+        }
+    }
+
+    CloseHandle(hReadyEvent);
+    return hThread;
+}
+#endif // EC_TEST_NOTIFICATIONS
+
 
 /*
  * Function: int main
@@ -485,86 +525,77 @@ main(
 {
 
     HANDLE hDevice = NULL;
-    int status;
-#ifdef EC_TEST_NOTIFICATIONS
+    HANDLE hThread = NULL;
+    int status = ERROR_SUCCESS;
+
     // Keep only one instance of the application running
     // This makes the App & Driver simple by not allowing multiple instances
     //
     HANDLE hMutex = CreateMutex(NULL, TRUE, L"Global\\ECTestAppMutex");
     if (hMutex == NULL) {
-        printf("CreateMutex failed, error: %d\n", GetLastError());
-        return GetLastError();
+        status = GetLastError();
+        printf("CreateMutex failed, error: %d\n", status);
+        goto CleanUp;
     }
 
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         printf("Another instance of the application is already running.\n");
-        CloseHandle(hMutex);
-        return ERROR_ALREADY_EXISTS;
+        goto CleanUp;
     }
-#endif
 
-#ifdef EC_TEST_NOTIFICATIONS
-    HANDLE hThread;
-    DWORD dwThreadId;
-#endif
     status = ParseCmdline(argc,argv);
-    if(status == ERROR_SUCCESS) {
-        status = GetKMDFDriverHandle(&hDevice);
+    if(status != ERROR_SUCCESS) {
+        goto CleanUp;
+    }
 
-        if (status == ERROR_SUCCESS) {
-#ifdef EC_TEST_NOTIFICATIONS
-            // Create the exit event
-            hExitEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-            if (hExitEvent == NULL) {
-                printf("CreateEvent failed, error: %d\n", GetLastError());
-                CloseHandle(hDevice);
-                return GetLastError();
-            }
-
-            // Create the thread
-            hThread = CreateThread(
-                NULL,                   // Default security attributes
-                0,                      // Default stack size
-                ThreadRoutine,          // Thread routine
-                NULL,                   // Parameter to thread routine
-                0,                      // Default creation flags
-                &dwThreadId);           // Receive thread identifier
-
-            if (hThread == NULL) {
-                printf("CreateThread failed, error: %d\n", GetLastError());
-                CloseHandle(hExitEvent);
-                CloseHandle(hDevice);
-                return GetLastError();
-            }
-
-            // Wait for the thread to start
-            Sleep(3000);
-#endif
-            status = EvaluateAcpi(hDevice);
+    status = GetKMDFDriverHandle(0,&hDevice);
+    if(status != ERROR_SUCCESS) {
+        goto CleanUp;
+    }
 
 #ifdef EC_TEST_NOTIFICATIONS
-            if (status == ERROR_SUCCESS) {
-                // Hang out here to collect notifications
-                Sleep(8000);
+    // Create the exit event
+    hExitEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    if (hExitEvent == NULL) {
+        status = GetLastError();
+        printf("CreateEvent failed, error: %d\n", status);
+        goto CleanUp;
+    }
+
+    // This creates a new thread and blocks until listener is running
+    hThread = StartNotificationListener();
+    if(hThread == NULL) {
+        goto CleanUp;
+    }
+#endif // EC_TEST_NOTIFICATIONS
+
+    // Evaluate ACPI function
+    status = EvaluateAcpi(hDevice);
+
+    if(status == ERROR_SUCCESS ) {
+        // Loop until we hit "q to quit"
+        printf("Waiting for notification press 'q' to quit.\n");
+        int key;
+        for(;;) {
+            key = getchar();
+            if( key == 'q') {
+                break;
             }
-
-            // Signal the exit event to stop the thread
-            SetEvent(hExitEvent);
-
-            // Wait for the thread to complete
-            WaitForSingleObject(hThread, INFINITE);
-
-            // Close the thread handle
-            CloseHandle(hThread);
-            CloseHandle(hExitEvent);
-#endif
-        }
-
-        if(hDevice != NULL) {
-            CloseHandle(hDevice);
         }
     }
 
-    CloseHandle(hMutex);
+    printf("You pressed 'q'. Exiting...\n");
+CleanUp:
+
+    // Signal the exit event to stop the thread
+    if(hExitEvent) SetEvent(hExitEvent);
+    if(hThread) WaitForSingleObject(hThread, INFINITE);
+
+    if(hThread) CloseHandle(hThread);
+    if(hExitEvent) CloseHandle(hExitEvent);
+
+    if(hDevice) CloseHandle(hDevice);
+    if(hMutex) CloseHandle(hMutex);
     return status;
+
 }
