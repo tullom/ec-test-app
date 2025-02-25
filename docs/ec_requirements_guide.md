@@ -1430,6 +1430,7 @@ required in ACPI for this framework to function.
 | EC_BAT_GET_BTM = 0xC | Get estimated runtime of battery while discharging                                                                                              |
 | EC_BAT_SET_BMS = 0xD | Sets battery capacity sampling time in ms                                                                                                       |
 | EC_BAT_SET_BMA = 0xE | Battery Measurement Average Interval                                                                                                            |
+| EC_BAT_GET_STA = 0xF | Get battery availability                                                                                                                        |
 
 ## EC_BAT_GET_BIX
 
@@ -2085,6 +2086,51 @@ Method (_BMA) {
     If(LEqual(STAT,0x0) ) // Check FF-A successful?
     {
       Return (BMAD)
+    } else {
+      Return(Zero)
+    }
+  } else {
+    Return(Zero)
+  }
+}
+```
+
+## EC_BAT_GET_STA
+
+Returns battery status to the OS along with any error conditions as defined by ACPI specification.
+
+### Input Parameters
+
+None
+
+### Output Parameters
+
+Should return structure as defined by ACPI specification
+
+[10. Power Source and Power Meter Devices — ACPI Specification 6.4
+documentation](https://uefi.org/htmlspecs/ACPI_Spec_6_4_html/06_Device_Configuration/Device_Configuration.html#sta-device-status)
+
+### FFA ACPI Example
+```
+Method (_STA) {
+  // Check to make sure FFA is available and not unloaded
+  If(LEqual(\\_SB.FFA0.AVAL,One)) {
+    Name(BUFF, Buffer(144){}) // Create buffer for send/recv data
+    CreateByteField(BUFF,0,STAT) // Out – Status for req/rsp
+    CreateByteField(BUFF,1,LENG) // In/Out – Bytes in req, updates bytes returned
+    CreateField(BUFF,16,128,UUID) // UUID of service
+    CreateByteField(BUFF,18, CMDD) // In – First byte of command
+    CreateField(BUFF,144,32,STAD) // Out – Raw data with status
+
+    Store(20, LENG)
+    Store(0xF, CMDD) // EC_BAT_GET_STA
+    Store(ToUUID("25cb5207-ac36-427d-aaef-3aa78877d27e"), UUID) // Battery
+    Store(Store(BUFF, \\_SB_.FFA0.FFAC), BUFF)
+
+
+    If(LEqual(STAT,0x0) ) // Check FF-A successful?
+    {
+      Return (STAD)
     } else {
       Return(Zero)
     }

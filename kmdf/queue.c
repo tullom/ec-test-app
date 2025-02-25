@@ -19,11 +19,12 @@ Abstract:
 #include "wdm.h"
 #include "wdmguid.h"
 #include "..\inc\ectest.h"
+#include "trace.h"
+#include "queue.tmh"
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text (PAGE, ECTestQueueInitialize)
 #endif
-
 
 #ifdef EC_TEST_NOTIFICATIONS
 // Globals
@@ -52,15 +53,86 @@ VOID NotificationCallback(
     ULONG NotifyValue
     )
 {
-    UNREFERENCED_PARAMETER(Context);
-
     LARGE_INTEGER timestamp;
+    WDFREQUEST request = NULL;
+    size_t rspSize = 0;
+    NotificationRsp_t *rsp = NULL;
+    NTSTATUS status = STATUS_SUCCESS;
+
+    Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE, "Notification received: %lu\n", NotifyValue);
+
     KeQuerySystemTimePrecise(&timestamp);
 
     m_NotifyStats.count++;
     m_NotifyStats.timestamp = timestamp.QuadPart;
     m_NotifyStats.lastevent = NotifyValue;
+
+    WDFDEVICE device = (WDFDEVICE)Context;
+    PDEVICE_CONTEXT deviceContext = DeviceContextGet(device);
+
+    WdfWaitLockAcquire(deviceContext->NotificationLock, NULL);
+    if (deviceContext->PendingRequest != NULL) {
+        request = deviceContext->PendingRequest;
+        deviceContext->PendingRequest = NULL;
+    }
+    WdfWaitLockRelease(deviceContext->NotificationLock);
+
+    if (request != NULL) {
+        // Proceed only if the request is not cancelled
+        if (STATUS_CANCELLED != WdfRequestUnmarkCancelable(request)) {
+            // Retrieve the output buffer from the request
+            status = WdfRequestRetrieveOutputBuffer(request, sizeof(NotificationRsp_t), &rsp, &rspSize);
+            if (NT_SUCCESS(status)) {
+                // Copy the notification data to the output buffer
+                RtlCopyMemory(rsp, &m_NotifyStats, sizeof(NotificationRsp_t));
+
+                Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"Completing 0x%llx with Success \n", (UINT64)request);
+                WdfRequestCompleteWithInformation(request, STATUS_SUCCESS, sizeof(NotificationRsp_t));
+            } else {
+                Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"Completing 0x%llx with status %!STATUS!\n", (UINT64)request, status);
+                WdfRequestComplete(request, status);
+            }
+        } else {
+            Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"Request 0x%llx was cancelled\n", (UINT64)request);
+            // If no request available, just log the notification
+            Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"Not delivered to app : %lu \n", NotifyValue);
+        }
+    } else {
+        // If no request was pending, just log the notification
+        Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"Not delivered to app : %lu \n", NotifyValue);
+    }
 }
+
+#ifdef ENABLE_NOTIFICATION_SIMULATION
+/*
+ * Function: VOID TimerCallback
+ *
+ * Description:
+ * Timer routine to simulate receiving the Notification at the driver.
+ * This function is called when the timer expires.
+ *
+ * Parameters:
+ * Timer - The Timer object.
+ *
+ * Return Value:
+ * VOID
+ *
+ */
+VOID TimerCallback(WDFTIMER Timer)
+{
+    WDFDEVICE device = WdfTimerGetParentObject(Timer);
+
+    // Get the current system time
+    LARGE_INTEGER systemTime;
+    KeQuerySystemTime(&systemTime);
+
+    // Use the low part of the system time as a random value
+    ULONG notifyValue = (ULONG)(systemTime.LowPart ^ systemTime.HighPart);
+    
+    Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"Notification Triggerd: %lu\n", notifyValue);
+    NotificationCallback((PVOID)device, notifyValue);
+}
+#endif // ENABLE_NOTIFICATION_SIMULATION
 
 /*
  * Function: NTSTATUS SetupNotification
@@ -89,13 +161,82 @@ NTSTATUS SetupNotification(WDFDEVICE device)
     
     if (NT_SUCCESS(status)) {
         status = acpiInterface.RegisterForDeviceNotifications(acpiInterface.Context,
-                        NotificationCallback, NULL);
+                                                              NotificationCallback, 
+                                                              NULL);
     }
     return status;
 }
+
+/*
+ * Function: VOID ECTestEvtRequestCancel
+ *
+ * Description: 
+ * Handles the cancellation of a pending request.
+ *
+ * Parameters:
+ * Request - The WDFREQUEST object representing the request.
+ *
+ * Return Value:
+ * VOID
+ *
+ */
+VOID ECTestEvtRequestCancel(WDFREQUEST Request)
+{
+    WDFDEVICE device = WdfIoQueueGetDevice(WdfRequestGetIoQueue(Request));
+    PDEVICE_CONTEXT deviceContext = DeviceContextGet(device);
+
+    Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"Cancel Request received for Request 0x%llx \n", (UINT64)Request);
+
+    WdfWaitLockAcquire(deviceContext->NotificationLock, NULL);
+    if (deviceContext->PendingRequest == Request) {
+        Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"Request found & cleared from pending list\n");
+        deviceContext->PendingRequest = NULL;
+    } else {
+        Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"Request not found in pending list\n");
+    }
+    WdfWaitLockRelease(deviceContext->NotificationLock);
+
+    Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"Completing the request 0x%llx with STATUS_CANCELLED\n", (UINT64)Request);
+    WdfRequestComplete(Request,
+                       STATUS_CANCELLED);
+}
+
+/*
+ * Function: NTSTATUS NotificationGet
+ *
+ * Description:
+ * Handles the NotificationGet request.
+ *
+ * Parameters:
+ * DeviceObject - The WDFDEVICE object representing the device.
+ * Request - The WDFREQUEST object representing the request.
+ *
+ * Return Value:
+ * NTSTATUS status code indicating the success or failure of the operation.
+ *
+ */
+NTSTATUS NotificationGet(WDFDEVICE Device, WDFREQUEST Request)
+{
+    PDEVICE_CONTEXT deviceContext = DeviceContextGet(Device);
+
+    WdfWaitLockAcquire(deviceContext->NotificationLock, NULL);
+    if (deviceContext->PendingRequest != NULL) {
+        WdfWaitLockRelease(deviceContext->NotificationLock);
+
+        Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"Request 0x%llx already pending\n", (UINT64)deviceContext->PendingRequest);
+        // If a request is already pending, complete the new request with STATUS_DEVICE_BUSY
+        return STATUS_DEVICE_BUSY;
+    }
+
+    // Keeping this simple. Only one request can be pended at a time (since only 1 app is supported at a time)
+    deviceContext->PendingRequest = Request;
+    Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"Saving Request 0x%llx to pending list\n", (UINT64)deviceContext->PendingRequest);
+    WdfWaitLockRelease(deviceContext->NotificationLock);
+
+    WdfRequestMarkCancelable(Request, ECTestEvtRequestCancel);
+    return STATUS_PENDING;
+}
 #endif // EC_TEST_NOTIFICATIONS
-
-
 /*
  * Function: NTSTATUS ECTestQueueInitialize
  *
@@ -124,10 +265,16 @@ ECTestQueueInitialize(
     // Configure a default queue so that requests that are not
     // configure-fowarded using WdfDeviceConfigureRequestDispatching to goto
     // other queues get dispatched here.
+    // NOTE: Dispatch is parallel to allow app to pend a notification requests along 
+    // with DSM request
     //
     WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(
-         &queueConfig,
+        &queueConfig,
+#ifdef EC_TEST_NOTIFICATIONS
+        WdfIoQueueDispatchParallel
+#else
         WdfIoQueueDispatchSequential
+#endif
         );
 
     queueConfig.EvtIoDeviceControl = ECTestEvtIoDeviceControl;
@@ -140,7 +287,7 @@ ECTestQueueInitialize(
                  );
 
     if( !NT_SUCCESS(status) ) {
-        KdPrint(("WdfIoQueueCreate failed 0x%x\n",status));
+        Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"WdfIoQueueCreate failed 0x%x\n",status);
         return status;
     }
 
@@ -172,6 +319,7 @@ WorkItemCallback(
 {
     PWORKITEM_CONTEXT context = WorkItemGetContext(WorkItem);
 
+    ACPI_EVAL_INPUT_BUFFER_V1_EX *inputBuffer = NULL;
     WDF_MEMORY_DESCRIPTOR inputMemDesc;
     WDF_MEMORY_DESCRIPTOR outputMemDesc;
     WDFMEMORY outputMemory = WDF_NO_HANDLE;
@@ -180,6 +328,13 @@ WorkItemCallback(
     NTSTATUS status = STATUS_SUCCESS;
     PCHAR outBuf = NULL;
     size_t outSize = 0;
+    size_t bufSize = 0;
+
+    status = WdfRequestRetrieveInputBuffer(context->Request, 0, &inputBuffer, &bufSize);
+    if(!NT_SUCCESS(status)) {
+        status = STATUS_INSUFFICIENT_RESOURCES;
+        goto Cleanup;
+    }
 
     // Determine the size of output buffer and only give this much space to ACPI request
     status = WdfRequestRetrieveOutputBuffer(context->Request, 0, &outBuf, &outSize);
@@ -200,7 +355,7 @@ WorkItemCallback(
         goto Cleanup;
     }
 
-    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&inputMemDesc, context->Buffer, sizeof(ACPI_EVAL_INPUT_BUFFER_V1_EX));
+    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&inputMemDesc, inputBuffer, sizeof(ACPI_EVAL_INPUT_BUFFER_V1_EX));
     WDF_MEMORY_DESCRIPTOR_INIT_HANDLE(&outputMemDesc, outputMemory, NULL);
     
     status = WdfIoTargetSendInternalIoctlSynchronously(
@@ -211,6 +366,21 @@ WorkItemCallback(
                  &outputMemDesc,
                  NULL,
                  (PULONG_PTR)&BytesReturned);
+
+#if defined(EC_TEST_NOTIFICATIONS) && defined(ENABLE_NOTIFICATION_SIMULATION)
+    if (NT_SUCCESS(status)) {
+        PDEVICE_CONTEXT deviceContext = DeviceContextGet(context->Device);
+        if(deviceContext->Timer != NULL) {
+            // Toggle the timer
+            if (FALSE == WdfTimerStart(deviceContext->Timer, WDF_REL_TIMEOUT_IN_MS(200))) {
+                Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"Starting Notification Simulation timer\n");
+            } else{
+                Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"Stopping Notification Simulation timer\n");
+                WdfTimerStop(deviceContext->Timer, FALSE);
+            }
+        }
+    }
+#endif
 
     if(!NT_SUCCESS(status)) {
         status = STATUS_INVALID_PARAMETER;
@@ -231,7 +401,6 @@ Cleanup:
  * Parameters:
  * WDFDEVICE Device: A handle to the framework device object.
  * WDFREQUEST Request: A handle to the framework request object.
- * ACPI_EVAL_INPUT_BUFFER_V1_EX *Buffer: A pointer to the input buffer for the ACPI evaluation.
  *
  * Return Value:
  * Returns an NTSTATUS value indicating the success or failure of the work item creation and enqueueing.
@@ -240,8 +409,7 @@ Cleanup:
 NTSTATUS
 CreateAndEnqueueWorkItem(
     _In_ WDFDEVICE Device,
-    _In_ WDFREQUEST Request,
-    _In_ ACPI_EVAL_INPUT_BUFFER_V1_EX *Buffer
+    _In_ WDFREQUEST Request
     )
 {
     NTSTATUS status;
@@ -257,14 +425,13 @@ CreateAndEnqueueWorkItem(
 
     status = WdfWorkItemCreate(&workitemConfig, &attributes, &workItem);
     if (!NT_SUCCESS(status)) {
-        KdPrint(("WdfWorkItemCreate failed: %!STATUS!\n", status));
+        Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"WdfWorkItemCreate failed: %!STATUS!\n", status);
         return status;
     }
 
     context = WorkItemGetContext(workItem);
     context->Device = Device;
     context->Request = Request;
-    context->Buffer = Buffer;
 
     WdfWorkItemEnqueue(workItem);
 
@@ -298,12 +465,15 @@ ECTestEvtIoDeviceControl(
     )
 {
     NTSTATUS            status = STATUS_SUCCESS;// Assume success
+    BOOLEAN             completeRequest = TRUE;
 
     if(!OutputBufferLength || !InputBufferLength)
     {
         WdfRequestComplete(Request, STATUS_INVALID_PARAMETER);
         return;
     }
+
+    WDFDEVICE device = WdfIoQueueGetDevice(Queue);
 
     //
     // Determine which I/O control code was specified.
@@ -312,6 +482,7 @@ ECTestEvtIoDeviceControl(
     switch (IoControlCode)
     {
     case IOCTL_ACPI_EVAL_METHOD_EX:
+        Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"IOCTL_ACPI_EVAL_METHOD_EX\n");
         // For bufffered ioctls WdfRequestRetrieveInputBuffer &
         // WdfRequestRetrieveOutputBuffer return the same buffer
         // pointer (Irp->AssociatedIrp.SystemBuffer), so read the
@@ -333,40 +504,27 @@ ECTestEvtIoDeviceControl(
         }
 
         // Don't complete the request here it will be completed in the callback
-        WDFDEVICE Device = WdfIoQueueGetDevice(Queue);
-        status = CreateAndEnqueueWorkItem(Device, Request,InputBuffer);
 
+        status = CreateAndEnqueueWorkItem(device, Request);
         // If we enqueue it successfully it will be completed later, otherwise complete with status
-        if(!NT_SUCCESS(status)) {
-            break;
+        if (NT_SUCCESS(status)) {
+            Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"EVAL request 0x%llx pended\n", (UINT64)Request);
+            // Request will be completed later in work item callback
+
+            completeRequest = FALSE;
+        } else {
+            Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"CreateAndEnqueueWorkItem failed\n");
         }
-
-        // Request will be completed later in work item callback
-        return;
-
+        break;
 #ifdef EC_TEST_NOTIFICATIONS
     case IOCTL_GET_NOTIFICATION:
-        size_t reqSize = 0;
-        size_t rspSize = 0;
-        NotificationReq_t *req = NULL;
-        NotificationRsp_t *rsp = NULL;
+        Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"IOCTL_GET_NOTIFICATION \n");
+        status = NotificationGet(device, Request);
 
-        status = WdfRequestRetrieveInputBuffer(Request, 0, &req, &reqSize);
-        if(!NT_SUCCESS(status)) {
-            status = STATUS_INSUFFICIENT_RESOURCES;
-            break;
+        // If we enqueue it successfully it will be completed later, otherwise complete with status
+        if (NT_SUCCESS(status)) {
+            completeRequest = FALSE;
         }
-    
-        // Determine the size of output buffer and only give this much space to ACPI request
-        status = WdfRequestRetrieveOutputBuffer(Request, 0, &rsp, &rspSize);
-        if(!NT_SUCCESS(status)) {
-            status = STATUS_INSUFFICIENT_RESOURCES;
-            break;
-        }
-
-        rsp->count = m_NotifyStats.count;
-        rsp->timestamp = m_NotifyStats.timestamp;
-        rsp->lastevent = m_NotifyStats.lastevent;
         break;
 #endif // EC_TEST_NOTIFICATIONS
 
@@ -412,6 +570,7 @@ ECTestEvtIoDeviceControl(
         break;
     }
 
-    WdfRequestComplete( Request, status);
-
+    if (completeRequest) {
+        WdfRequestComplete(Request, status);
+    }
 }

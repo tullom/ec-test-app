@@ -153,9 +153,18 @@
     </DriverSign>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="device.c" />
-    <ClCompile Include="driver.c" />
-    <ClCompile Include="queue.c" />
+    <ClCompile Include="device.c">
+        <WppEnabled>true</WppEnabled>
+        <WppScanConfigurationData>trace.h</WppScanConfigurationData>
+    </ClCompile>
+    <ClCompile Include="driver.c">
+        <WppEnabled>true</WppEnabled>
+        <WppScanConfigurationData>trace.h</WppScanConfigurationData>
+    </ClCompile>
+    <ClCompile Include="queue.c">
+        <WppEnabled>true</WppEnabled>
+        <WppScanConfigurationData>trace.h</WppScanConfigurationData>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Inf Exclude="@(Inf)" Include="*.inx" />

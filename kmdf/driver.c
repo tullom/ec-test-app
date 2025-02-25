@@ -33,7 +33,8 @@ Abstract:
 --*/
 
 #include "driver.h"
-
+#include "trace.h"
+#include "driver.tmh"
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text (INIT, DriverEntry)
@@ -75,6 +76,9 @@ Return Value:
     WDF_DRIVER_CONFIG config;
     NTSTATUS status;
 
+    // Initialize WPP tracing
+    WPP_INIT_TRACING(DriverObject, RegistryPath);
+
     WDF_DRIVER_CONFIG_INIT(&config, EvtDeviceAdd );
 
     status = WdfDriverCreate(DriverObject,
@@ -83,7 +87,7 @@ Return Value:
                             &config,
                             WDF_NO_HANDLE);
     if (!NT_SUCCESS(status)) {
-        KdPrint(("Error: WdfDriverCreate failed 0x%x\n", status));
+        Trace(TRACE_LEVEL_ERROR,TRACE_DRIVER,"Error: WdfDriverCreate failed 0x%x\n", status);
         return status;
     }
 
@@ -119,8 +123,30 @@ Return Value:
     UNREFERENCED_PARAMETER(Driver);
     PAGED_CODE();
 
-    KdPrint(("Enter  EvtDeviceAdd\n"));
+    Trace(TRACE_LEVEL_INFORMATION,TRACE_DRIVER,"Enter  EvtDeviceAdd\n");
     status = ECTestDeviceCreate(DeviceInit);
 
     return status;
+}
+
+VOID
+DriverUnload(
+    _In_ PDRIVER_OBJECT DriverObject
+    )
+/*++
+Routine Description:
+
+    DriverUnload is called when driver is unloaded to cleanup WPP tracing
+
+Arguments:
+
+    Driver - Handle to a framework driver object created in DriverEntry
+
+Return Value:
+
+--*/
+{
+    // Clean up WPP tracing
+    Trace(TRACE_LEVEL_INFORMATION,TRACE_DRIVER,"Enter  DriverUnload\n");
+    WPP_CLEANUP(DriverObject);
 }
