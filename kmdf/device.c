@@ -10,6 +10,8 @@ Abstract:
 --*/
 
 #include "driver.h"
+#include "trace.h"
+#include "device.tmh"
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text (PAGE, ECTestDeviceCreate)
@@ -103,7 +105,7 @@ Return Value:
                 if (!NT_SUCCESS(WdfTimerCreate(&timerConfig, &timerAttributes, &deviceContext->Timer))) {
 
                     // Ignore the failure, and allow the device to create successfully
-                    KdPrint(("WdfTimerCreate failed\n"));
+                    Trace(TRACE_LEVEL_ERROR, TRACE_DEVICE,"WdfTimerCreate failed\n");
                     deviceContext->Timer = NULL;
                 }
 #endif

@@ -19,6 +19,8 @@ Abstract:
 #include "wdm.h"
 #include "wdmguid.h"
 #include "..\inc\ectest.h"
+#include "trace.h"
+#include "queue.tmh"
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text (PAGE, ECTestQueueInitialize)
@@ -57,7 +59,7 @@ VOID NotificationCallback(
     NotificationRsp_t *rsp = NULL;
     NTSTATUS status = STATUS_SUCCESS;
 
-    KdPrint(("Notification received: %lu\n", NotifyValue));
+    Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE, "Notification received: %lu\n", NotifyValue);
 
     KeQuerySystemTimePrecise(&timestamp);
 
@@ -84,20 +86,20 @@ VOID NotificationCallback(
                 // Copy the notification data to the output buffer
                 RtlCopyMemory(rsp, &m_NotifyStats, sizeof(NotificationRsp_t));
 
-                KdPrint(("Completing 0x%x with Success \n", request));
+                Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"Completing 0x%llx with Success \n", (UINT64)request);
                 WdfRequestCompleteWithInformation(request, STATUS_SUCCESS, sizeof(NotificationRsp_t));
             } else {
-                KdPrint(("Completing 0x%x with status %!STATUS!\n", request, status));
+                Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"Completing 0x%llx with status %!STATUS!\n", (UINT64)request, status);
                 WdfRequestComplete(request, status);
             }
         } else {
-            KdPrint(("Request 0x%x was cancelled\n", request));
+            Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"Request 0x%llx was cancelled\n", (UINT64)request);
             // If no request available, just log the notification
-            KdPrint(("Not delivered to app : %lu \n", NotifyValue));
+            Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"Not delivered to app : %lu \n", NotifyValue);
         }
     } else {
         // If no request was pending, just log the notification
-        KdPrint(("Not delivered to app : %lu \n", NotifyValue));
+        Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"Not delivered to app : %lu \n", NotifyValue);
     }
 }
 
@@ -127,7 +129,7 @@ VOID TimerCallback(WDFTIMER Timer)
     // Use the low part of the system time as a random value
     ULONG notifyValue = (ULONG)(systemTime.LowPart ^ systemTime.HighPart);
     
-    KdPrint(("Notification Triggerd: %lu\n", notifyValue));
+    Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"Notification Triggerd: %lu\n", notifyValue);
     NotificationCallback((PVOID)device, notifyValue);
 }
 #endif // ENABLE_NOTIFICATION_SIMULATION
@@ -183,18 +185,18 @@ VOID ECTestEvtRequestCancel(WDFREQUEST Request)
     WDFDEVICE device = WdfIoQueueGetDevice(WdfRequestGetIoQueue(Request));
     PDEVICE_CONTEXT deviceContext = DeviceContextGet(device);
 
-    KdPrint(("Cancel Request received for Request 0x%x \n", Request));
+    Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"Cancel Request received for Request 0x%llx \n", (UINT64)Request);
 
     WdfWaitLockAcquire(deviceContext->NotificationLock, NULL);
     if (deviceContext->PendingRequest == Request) {
-        KdPrint(("Request found & cleared from pending list\n"));
+        Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"Request found & cleared from pending list\n");
         deviceContext->PendingRequest = NULL;
     } else {
-        KdPrint(("Request not found in pending list\n"));
+        Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"Request not found in pending list\n");
     }
     WdfWaitLockRelease(deviceContext->NotificationLock);
 
-    KdPrint(("Completing the request 0x%x with STATUS_CANCELLED\n", Request));
+    Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"Completing the request 0x%llx with STATUS_CANCELLED\n", (UINT64)Request);
     WdfRequestComplete(Request,
                        STATUS_CANCELLED);
 }
@@ -221,14 +223,14 @@ NTSTATUS NotificationGet(WDFDEVICE Device, WDFREQUEST Request)
     if (deviceContext->PendingRequest != NULL) {
         WdfWaitLockRelease(deviceContext->NotificationLock);
 
-        KdPrint(("Request 0x%x already pending\n", deviceContext->PendingRequest));
+        Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"Request 0x%llx already pending\n", (UINT64)deviceContext->PendingRequest);
         // If a request is already pending, complete the new request with STATUS_DEVICE_BUSY
         return STATUS_DEVICE_BUSY;
     }
 
     // Keeping this simple. Only one request can be pended at a time (since only 1 app is supported at a time)
     deviceContext->PendingRequest = Request;
-    KdPrint(("Saving Request 0x%x to pending list\n", deviceContext->PendingRequest));
+    Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"Saving Request 0x%llx to pending list\n", (UINT64)deviceContext->PendingRequest);
     WdfWaitLockRelease(deviceContext->NotificationLock);
 
     WdfRequestMarkCancelable(Request, ECTestEvtRequestCancel);
@@ -285,7 +287,7 @@ ECTestQueueInitialize(
                  );
 
     if( !NT_SUCCESS(status) ) {
-        KdPrint(("WdfIoQueueCreate failed 0x%x\n",status));
+        Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"WdfIoQueueCreate failed 0x%x\n",status);
         return status;
     }
 
@@ -371,9 +373,9 @@ WorkItemCallback(
         if(deviceContext->Timer != NULL) {
             // Toggle the timer
             if (FALSE == WdfTimerStart(deviceContext->Timer, WDF_REL_TIMEOUT_IN_MS(200))) {
-                KdPrint(("Starting Notification Simulation timer\n"));
+                Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"Starting Notification Simulation timer\n");
             } else{
-                KdPrint(("Stopping Notification Simulation timer\n"));
+                Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"Stopping Notification Simulation timer\n");
                 WdfTimerStop(deviceContext->Timer, FALSE);
             }
         }
@@ -423,7 +425,7 @@ CreateAndEnqueueWorkItem(
 
     status = WdfWorkItemCreate(&workitemConfig, &attributes, &workItem);
     if (!NT_SUCCESS(status)) {
-        KdPrint(("WdfWorkItemCreate failed: %!STATUS!\n", status));
+        Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"WdfWorkItemCreate failed: %!STATUS!\n", status);
         return status;
     }
 
@@ -480,7 +482,7 @@ ECTestEvtIoDeviceControl(
     switch (IoControlCode)
     {
     case IOCTL_ACPI_EVAL_METHOD_EX:
-        KdPrint(("IOCTL_ACPI_EVAL_METHOD_EX\n"));
+        Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"IOCTL_ACPI_EVAL_METHOD_EX\n");
         // For bufffered ioctls WdfRequestRetrieveInputBuffer &
         // WdfRequestRetrieveOutputBuffer return the same buffer
         // pointer (Irp->AssociatedIrp.SystemBuffer), so read the
@@ -506,17 +508,17 @@ ECTestEvtIoDeviceControl(
         status = CreateAndEnqueueWorkItem(device, Request);
         // If we enqueue it successfully it will be completed later, otherwise complete with status
         if (NT_SUCCESS(status)) {
-            KdPrint(("EVAL request 0x%x pended\n", Request));
+            Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"EVAL request 0x%llx pended\n", (UINT64)Request);
             // Request will be completed later in work item callback
 
             completeRequest = FALSE;
         } else {
-            KdPrint(("CreateAndEnqueueWorkItem failed\n"));
+            Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"CreateAndEnqueueWorkItem failed\n");
         }
         break;
 #ifdef EC_TEST_NOTIFICATIONS
     case IOCTL_GET_NOTIFICATION:
-        KdPrint(("IOCTL_GET_NOTIFICATION \n"));
+        Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"IOCTL_GET_NOTIFICATION \n");
         status = NotificationGet(device, Request);
 
         // If we enqueue it successfully it will be completed later, otherwise complete with status
