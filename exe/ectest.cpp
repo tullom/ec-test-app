@@ -26,7 +26,7 @@ _Analysis_mode_(_Analysis_code_type_user_code_)
 #include <devioctl.h>
 #include "..\inc\ectest.h"
 
-#define EC_TEST_NOTIFICATIONS
+//#define EC_TEST_NOTIFICATIONS
 //#define EC_TEST_SHARED_BUFFER
 
 #define MAX_ACPIPATH_LENGTH 64
@@ -38,10 +38,8 @@ const GUID GUID_DEVCLASS_ECTEST = { 0xedc778aa, 0x35ee, 0x4c03, { 0xb1, 0xe4, 0x
 static WCHAR gDevicePath[MAX_DEVPATH_LENGTH];
 static char gMethodName[MAX_ACPIPATH_LENGTH];
 
-#ifdef EC_TEST_NOTIFICATIONS
 // Global event handle
-HANDLE hExitEvent;
-#endif
+static HANDLE gExitEvent = NULL;
 
 /*
  * Function: BOOL GetGUIDPath
@@ -63,63 +61,69 @@ BOOL GetGUIDPath(
     )
 {
     BOOL bRet = TRUE;
+    static BOOL bDeviceFound = FALSE;
+
+    // Don't spend time to look up the device again if we already have the handle
+    if(bDeviceFound) {
+        return bRet;
+    }
 
     // Get devices of ACPI class there should only be one on the system
-   HDEVINFO DeviceInfoSet = SetupDiGetClassDevs(&GUID_DEVCLASS_SYSTEM, NULL, NULL, DIGCF_PRESENT);
-   SP_DEVINFO_DATA DeviceInfoData;
-   DWORD DeviceIndex = 0;
+    HDEVINFO DeviceInfoSet = SetupDiGetClassDevs(&GUID_DEVCLASS_SYSTEM, NULL, NULL, DIGCF_PRESENT);
+    SP_DEVINFO_DATA DeviceInfoData;
+    DWORD DeviceIndex = 0;
 
-   ZeroMemory(&DeviceInfoData, sizeof(SP_DEVINFO_DATA));
-   DeviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
-   while (SetupDiEnumDeviceInfo(
-                             DeviceInfoSet,
-                             DeviceIndex,
-                             &DeviceInfoData)) {
-      // Read Device instance path and check for ACPI_HAL\PNP0C08 as this is the ACPI driver
-      DEVPROPTYPE PropertyType;
-      DWORD RequiredSize = 0;
-      BYTE PropertyBuffer[128];
-      bRet = SetupDiGetDevicePropertyW(
-                            DeviceInfoSet,
-                            &DeviceInfoData,
-                            &DEVPKEY_Device_InstanceId,
-                            &PropertyType,
-                            PropertyBuffer,
-                            sizeof(PropertyBuffer),
-                            &RequiredSize,
-                            0);
+    ZeroMemory(&DeviceInfoData, sizeof(SP_DEVINFO_DATA));
+    DeviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+    while (SetupDiEnumDeviceInfo(
+                                DeviceInfoSet,
+                                DeviceIndex,
+                                &DeviceInfoData)) {
+        // Read Device instance path and check for ACPI_HAL\PNP0C08 as this is the ACPI driver
+        DEVPROPTYPE PropertyType;
+        DWORD RequiredSize = 0;
+        BYTE PropertyBuffer[128];
+        bRet = SetupDiGetDevicePropertyW(
+                                DeviceInfoSet,
+                                &DeviceInfoData,
+                                &DEVPKEY_Device_InstanceId,
+                                &PropertyType,
+                                PropertyBuffer,
+                                sizeof(PropertyBuffer),
+                                &RequiredSize,
+                                0);
 
-      if(RequiredSize > 0) {
-          printf("Found matching Class GUID: %ls\n", (wchar_t *)PropertyBuffer);
-          // Check if string contains PNP0C08 then this is our main ACPI device
-          if( wcsstr((wchar_t*)PropertyBuffer,name) ) {
-            bRet = SetupDiGetDevicePropertyW(
-                                    DeviceInfoSet,
-                                    &DeviceInfoData,
-                                    &DEVPKEY_Device_PDOName,
-                                    &PropertyType,
-                                    PropertyBuffer,
-                                    sizeof(PropertyBuffer),
-                                    &RequiredSize,
-                                    0);
+        if(RequiredSize > 0) {
+            printf("Found matching Class GUID: %ls\n", (wchar_t *)PropertyBuffer);
+            // Check if string contains PNP0C08 then this is our main ACPI device
+            if( wcsstr((wchar_t*)PropertyBuffer,name) ) {
+                bRet = SetupDiGetDevicePropertyW(
+                                        DeviceInfoSet,
+                                        &DeviceInfoData,
+                                        &DEVPKEY_Device_PDOName,
+                                        &PropertyType,
+                                        PropertyBuffer,
+                                        sizeof(PropertyBuffer),
+                                        &RequiredSize,
+                                        0);
 
-            if(RequiredSize > 0) {
-                StringCchPrintf(gDevicePath,sizeof(gDevicePath),L"\\\\.\\GLOBALROOT%ls",(wchar_t*)PropertyBuffer);
-                printf("%ls\n", gDevicePath);
-                break;
+                if(RequiredSize > 0) {
+                    StringCchPrintf(gDevicePath,sizeof(gDevicePath),L"\\\\.\\GLOBALROOT%ls",(wchar_t*)PropertyBuffer);
+                    printf("%ls\n", gDevicePath);
+                    break;
+                }
             }
-          }
-      }
+        }
 
-      DeviceIndex++;
+        DeviceIndex++;
 
-   }
+    }
 
-   if (DeviceInfoSet) {
-    SetupDiDestroyDeviceInfoList(DeviceInfoSet);
-   }
+    if (DeviceInfoSet) {
+        SetupDiDestroyDeviceInfoList(DeviceInfoSet);
+    }
 
-   return true;
+    return TRUE;
 }
 
 /*
@@ -257,16 +261,14 @@ int GetKMDFDriverHandle(
     _Out_ HANDLE *hDevice
     )
 {
-    static bool bDeviceFound = FALSE;
     int status = ERROR_SUCCESS;
 
-    if ( !bDeviceFound && !GetGUIDPath(GUID_DEVCLASS_ECTEST,L"ACPI1234") )
+    if (!GetGUIDPath(GUID_DEVCLASS_ECTEST,L"ACPI1234") )
     {
         status = ERROR_INVALID_HANDLE;
         goto CleanUp;
     }
 
-    bDeviceFound = TRUE;
     printf("DevicePath: %ws\n", gDevicePath);
     *hDevice = CreateFile(gDevicePath,
                          GENERIC_READ|GENERIC_WRITE,
@@ -396,7 +398,7 @@ DWORD WINAPI NotificationThread(LPVOID lpParam)
                     hReadyEvent = NULL;
                 }
 
-                HANDLE events[2] = { overlapped.hEvent, hExitEvent };
+                HANDLE events[2] = { overlapped.hEvent, gExitEvent };
                 DWORD waitResult = WaitForMultipleObjects(2, events, FALSE, INFINITE);
                 switch (waitResult) {
                     case WAIT_OBJECT_0:
@@ -408,7 +410,7 @@ DWORD WINAPI NotificationThread(LPVOID lpParam)
                         }
                         break;
                     case WAIT_OBJECT_0 + 1:
-                        // hExitEvent event is set
+                        // gExitEvent event is set
                         printf ( "Cancelling Io \n");
                         CancelIo(hDevice);
                         status = ERROR_OPERATION_ABORTED;
@@ -555,8 +557,8 @@ main(
 
 #ifdef EC_TEST_NOTIFICATIONS
     // Create the exit event
-    hExitEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-    if (hExitEvent == NULL) {
+    gExitEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+    if (gExitEvent == NULL) {
         status = GetLastError();
         printf("CreateEvent failed, error: %d\n", status);
         goto CleanUp;
@@ -588,11 +590,11 @@ main(
 CleanUp:
 
     // Signal the exit event to stop the thread
-    if(hExitEvent) SetEvent(hExitEvent);
+    if(gExitEvent) SetEvent(gExitEvent);
     if(hThread) WaitForSingleObject(hThread, INFINITE);
 
     if(hThread) CloseHandle(hThread);
-    if(hExitEvent) CloseHandle(hExitEvent);
+    if(gExitEvent) CloseHandle(gExitEvent);
 
     if(hDevice) CloseHandle(hDevice);
     if(hMutex) CloseHandle(hMutex);
