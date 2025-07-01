@@ -33,7 +33,8 @@ _Analysis_mode_(_Analysis_code_type_user_code_)
 #define MAX_DEVPATH_LENGTH  64
 
 // GUID defined in the KMDF INX file for ectest.sys
-const GUID GUID_DEVCLASS_ECTEST = { 0xedc778aa, 0x35ee, 0x4c03, { 0xb1, 0xe4, 0xaf, 0x78, 0x82, 0x90, 0x35, 0x71 } };
+// {5362ad97-ddfe-429d-9305-31c0ad27880a}
+const GUID GUID_DEVCLASS_ECTEST = { 0x5362ad97, 0xddfe, 0x429d, { 0x93, 0x05, 0x31, 0xc0, 0xad, 0x27, 0x88, 0x0a } };
 
 static WCHAR gDevicePath[MAX_DEVPATH_LENGTH];
 static char gMethodName[MAX_ACPIPATH_LENGTH];
@@ -263,7 +264,7 @@ int GetKMDFDriverHandle(
 {
     int status = ERROR_SUCCESS;
 
-    if (!GetGUIDPath(GUID_DEVCLASS_ECTEST,L"ACPI1234") )
+    if (!GetGUIDPath(GUID_DEVCLASS_ECTEST,L"ETST0001") )
     {
         status = ERROR_INVALID_HANDLE;
         goto CleanUp;
@@ -529,6 +530,13 @@ main(
     HANDLE hDevice = NULL;
     HANDLE hThread = NULL;
     int status = ERROR_SUCCESS;
+
+    UINT8 *ptr = (UINT8*)&GUID_DEVCLASS_ECTEST;
+    printf("GUID:  {5362ad97-ddfe-429d-9305-31c0ad27880a}\n");
+    for(int i=0 ; i < 16; i++) {
+        printf("%02x",ptr[i]);
+    }
+    printf("\n\n");
 
     // Keep only one instance of the application running
     // This makes the App & Driver simple by not allowing multiple instances

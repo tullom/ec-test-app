@@ -21,6 +21,7 @@ Abstract:
 #include "..\inc\ectest.h"
 #include "trace.h"
 #include "queue.tmh"
+#include "ffainterface.h"
 
 #ifdef ALLOC_PRAGMA
 #pragma alloc_text (PAGE, ECTestQueueInitialize)
@@ -299,6 +300,46 @@ ECTestQueueInitialize(
 }
 
 /*
+ * Function: NTSTATUS FfaDrvTestDirectCall
+ *
+ * Description:
+ * Test function to directly make FFA call through the ffadrv interface rather than through ACPI
+ *
+ * Parameters:
+ * None
+ *
+ * Return Value:
+ * Returns an NTSTATUS value indicating the success or failure of FFA command
+ * If
+ */
+NTSTATUS
+FfaDrvTestDirectCall(VOID)
+{
+  NTSTATUS status = STATUS_SUCCESS;
+  UNICODE_STRING GetFfaInterfaceRoutineName;
+  RtlInitUnicodeString(&GetFfaInterfaceRoutineName, L"ExGetFfaInterface");
+  EX_GET_FFA_INTERFACE GetFfaInterfaceRoutine = (EX_GET_FFA_INTERFACE) MmGetSystemRoutineAddress(&GetFfaInterfaceRoutineName);
+  PFFA_INTERFACE pFfaInterface = GetFfaInterfaceRoutine(FFA_INTERFACE_VERSION_1);
+
+  if(pFfaInterface == NULL) {
+    Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"pFfaInterface is NULL\n");
+    status = STATUS_INVALID_PARAMETER;
+  } else {
+    FFA_MSG_SEND_DIRECT_REQ2_PARAMETERS m_FfaParameters;
+    memset(&m_FfaParameters, 0, sizeof(m_FfaParameters));
+    m_FfaParameters.Version = FFA_MSG_SEND_DIRECT_REQ2_PARAMETERS_VERSION_V1;
+    m_FfaParameters.AsyncParameters.Flags.FrameworkYieldHandling = ENABLE_FFA_YIELD;
+    RtlCopyMemory(&m_FfaParameters.ServiceUuid,
+                  &GUID_CAPS_SERVICE_UUID,
+                  sizeof(GUID));
+    m_FfaParameters.InputBuffer.Arg4 = 0x1; // GET_CAPS
+    status = pFfaInterface->SendDirectReq2(&m_FfaParameters);
+  }
+  
+  return status;
+}
+
+/*
  * Function: VOID WorkItemCallback
  *
  * Description:
@@ -358,6 +399,9 @@ WorkItemCallback(
     WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&inputMemDesc, inputBuffer, sizeof(ACPI_EVAL_INPUT_BUFFER_V1_EX));
     WDF_MEMORY_DESCRIPTOR_INIT_HANDLE(&outputMemDesc, outputMemory, NULL);
     
+    LARGE_INTEGER timestamp;
+    KeQuerySystemTimePrecise(&timestamp);
+    Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"Before ACPI Call: %llu\n", timestamp.QuadPart);
     status = WdfIoTargetSendInternalIoctlSynchronously(
                  WdfDeviceGetIoTarget(context->Device),
                  NULL,
@@ -366,7 +410,10 @@ WorkItemCallback(
                  &outputMemDesc,
                  NULL,
                  (PULONG_PTR)&BytesReturned);
+    KeQuerySystemTimePrecise(&timestamp);
+    Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"After ACPI Call: %llu\n", timestamp.QuadPart);
 
+             
 #if defined(EC_TEST_NOTIFICATIONS) && defined(ENABLE_NOTIFICATION_SIMULATION)
     if (NT_SUCCESS(status)) {
         PDEVICE_CONTEXT deviceContext = DeviceContextGet(context->Device);
