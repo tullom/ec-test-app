@@ -315,28 +315,28 @@ ECTestQueueInitialize(
 NTSTATUS
 FfaDrvTestDirectCall(VOID)
 {
-  NTSTATUS status = STATUS_SUCCESS;
-  UNICODE_STRING GetFfaInterfaceRoutineName;
-  RtlInitUnicodeString(&GetFfaInterfaceRoutineName, L"ExGetFfaInterface");
-  EX_GET_FFA_INTERFACE GetFfaInterfaceRoutine = (EX_GET_FFA_INTERFACE) MmGetSystemRoutineAddress(&GetFfaInterfaceRoutineName);
-  PFFA_INTERFACE pFfaInterface = GetFfaInterfaceRoutine(FFA_INTERFACE_VERSION_1);
+    NTSTATUS status = STATUS_SUCCESS;
+    UNICODE_STRING GetFfaInterfaceRoutineName;
+    RtlInitUnicodeString(&GetFfaInterfaceRoutineName, L"ExGetFfaInterface");
+    EX_GET_FFA_INTERFACE GetFfaInterfaceRoutine = (EX_GET_FFA_INTERFACE) MmGetSystemRoutineAddress(&GetFfaInterfaceRoutineName);
+    PFFA_INTERFACE pFfaInterface = GetFfaInterfaceRoutine(FFA_INTERFACE_VERSION_1);
 
-  if(pFfaInterface == NULL) {
-    Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"pFfaInterface is NULL\n");
-    status = STATUS_INVALID_PARAMETER;
-  } else {
-    FFA_MSG_SEND_DIRECT_REQ2_PARAMETERS m_FfaParameters;
-    memset(&m_FfaParameters, 0, sizeof(m_FfaParameters));
-    m_FfaParameters.Version = FFA_MSG_SEND_DIRECT_REQ2_PARAMETERS_VERSION_V1;
-    m_FfaParameters.AsyncParameters.Flags.FrameworkYieldHandling = ENABLE_FFA_YIELD;
-    RtlCopyMemory(&m_FfaParameters.ServiceUuid,
-                  &GUID_CAPS_SERVICE_UUID,
-                  sizeof(GUID));
-    m_FfaParameters.InputBuffer.Arg4 = 0x1; // GET_CAPS
-    status = pFfaInterface->SendDirectReq2(&m_FfaParameters);
-  }
-  
-  return status;
+    if(pFfaInterface == NULL) {
+        Trace(TRACE_LEVEL_ERROR, TRACE_QUEUE,"pFfaInterface is NULL\n");
+        status = STATUS_INVALID_PARAMETER;
+    } else {
+        FFA_MSG_SEND_DIRECT_REQ2_PARAMETERS m_FfaParameters;
+        memset(&m_FfaParameters, 0, sizeof(m_FfaParameters));
+        m_FfaParameters.Version = FFA_MSG_SEND_DIRECT_REQ2_PARAMETERS_VERSION_V1;
+        m_FfaParameters.AsyncParameters.Flags.FrameworkYieldHandling = ENABLE_FFA_YIELD;
+        RtlCopyMemory(&m_FfaParameters.ServiceUuid,
+                    &GUID_CAPS_SERVICE_UUID,
+                    sizeof(GUID));
+        m_FfaParameters.InputBuffer.Arg4 = 0x1; // GET_CAPS
+        status = pFfaInterface->SendDirectReq2(&m_FfaParameters);
+    }
+    
+    return status;
 }
 
 /*
@@ -428,10 +428,6 @@ WorkItemCallback(
         }
     }
 #endif
-
-    if(!NT_SUCCESS(status)) {
-        status = STATUS_INVALID_PARAMETER;
-    }
 
 Cleanup:
     WdfRequestSetInformation(context->Request,BytesReturned);
