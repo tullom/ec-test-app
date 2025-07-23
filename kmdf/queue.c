@@ -1,13 +1,8 @@
 /*++
-
-Copyright (c) 1990-2000  Microsoft Corporation
-
 Module Name:
-
     queue.c
 
 Abstract:
-
     This is a C version of a very simple sample driver that illustrates
     how to use the driver framework and demonstrates best practices.
 

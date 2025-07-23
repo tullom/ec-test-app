@@ -1,17 +1,14 @@
 /*++
 Module Name:
-
     queue.h
 
 Abstract:
 
     This is a C version of a very simple sample driver that illustrates
     how to use the driver framework and demonstrates best practices.
-
 --*/
 
 #include <acpiioct.h>
-
 
 //
 // This is the context that can be placed per queue
@@ -25,7 +22,6 @@ typedef struct _WORKITEM_CONTEXT {
 } WORKITEM_CONTEXT, *PWORKITEM_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(WORKITEM_CONTEXT, WorkItemGetContext);
-
 
 NTSTATUS
 ECTestQueueInitialize(

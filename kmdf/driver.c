@@ -1,34 +1,15 @@
 /*++
 Module Name:
-
     driver.c
 
 Abstract:
+    This module contains the entry points and core routines for the WDF-based
+    function driver. It includes initialization logic in DriverEntry, device
+    creation in EvtDeviceAdd, and cleanup in DriverUnload. The driver also
+    integrates WPP tracing for diagnostics and logging.
 
-    This driver demonstrates use of a default I/O Queue, its
-    request start events, cancellation event, and a synchronized DPC.
-
-    To demonstrate asynchronous operation, the I/O requests are not completed
-    immediately, but stored in the drivers private data structure, and a timer
-    DPC will complete it next time the DPC runs.
-
-    During the time the request is waiting for the DPC to run, it is
-    made cancellable by the call WdfRequestMarkCancelable. This
-    allows the test program to cancel the request and exit instantly.
-
-    This rather complicated set of events is designed to demonstrate
-    the driver frameworks synchronization of access to a device driver
-    data structure, and a pointer which can be a proxy for device hardware
-    registers or resources.
-
-    This common data structure, or resource is accessed by new request
-    events arriving, the DPC that completes it, and cancel processing.
-
-    Notice the lack of specific lock/unlock operations.
-
-    Even though this example utilizes a serial queue, a parallel queue
-    would not need any additional explicit synchronization, just a
-    strategy for managing multiple requests outstanding.
+Environment:
+    Kernel-mode only
 
 --*/
 
