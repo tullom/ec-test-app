@@ -429,10 +429,6 @@ WorkItemCallback(
     }
 #endif
 
-    if(!NT_SUCCESS(status)) {
-        status = STATUS_INVALID_PARAMETER;
-    }
-
 Cleanup:
     WdfRequestSetInformation(context->Request,BytesReturned);
     WdfRequestComplete( context->Request, status);
