@@ -1,14 +1,15 @@
 # ec-test-app
 
 ## Overview
-This repo includes EC high level documentation, ACPI sample code for EC communication and EC test application to test EC interfaces.
+This repo includes code for testing EC interface and sample ACPI code.
+See [ODP Documentation](https://github.com/OpenDevicePartnership/documentation/tree/main/guide_book) for details on EC specification.
 
 ## Features and Status
 ```
-docs  - Documentation for high level EC requirements and integration guide
 exe   - User mode CLI to call and evaluate ACPI functions to test EC interfaces
 inc   - Shared header files between test app and kernel mode driver
 kmdf  - Kernel mode driver that test app communicates with to evaluate ACPI methods
+rust  - Demo application that uses Ratatui to display GUI for demoing EC features
 uefi  - Sample EC ACPI tables for secure EC. Includes thermal and notification examples
 ```
 
@@ -20,11 +21,18 @@ setupbuildenv.cmd x86_arm64
 ```
 
 ## Compilation Instructions
-To compile ectest.exe from exe folder in cmd with environment setup run
-`msbuild ectest_app.vcxproj /p:Configuration=Debug /p:Platform=ARM64`
+
+To compile eclib.lib and eclib.dll from lib folder in cmd with environment setup run
+`msbuild /p:Configuration=Release /p:Platform=ARM64`
 
 To compile ectest.sys from kmdf folder in cmd with environment setup run
-`msbuild ectest_kmdf.vcxproj /p:Configuration=Debug /p:Platform=ARM64`
+`msbuild /p:Configuration=Release /p:Platform=ARM64`
+
+To compile ectest.exe from exe folder in cmd with environment setup run
+`msbuild /p:Configuration=Release /p:Platform=ARM64`
+
+To compile ec_demo.exe from rust folder in cmd with environment setup run after compiling lib
+`cargo build --release --target=aarch64-pc-windows-msvc`
 
 The driver needs ACPI entries to load and execute. Sample ACPI for loading the driver and stubbed implementation of fan is available in acpi folder.
 If your ACPI already has fan and battery definitions you can just include ectest and add methods to expose the ACPI functions you want to test.
@@ -42,15 +50,15 @@ You can install the driver through device manager as well, but easier to use dev
 From admin command prompt on your target device cd to location of install files:
 ```
 cd e:\install
-devcon remove ACPI\ACPI1234
-devcon install ectest.inf ACPI\ACPI1234
+devcon remove ACPI\ECTST0001
+devcon install ectest.inf ACPI\ECTST0001
 ```
 
 You will get a pop-up saying that the certificate is not tested and you can choose to install anyways. Otherwise if you install certificate in your certstore under trusted root you won't get this.
 To run the test you can simply use the following
 ```
 E:\>ectest -acpi \_SB.ECT0.TFST
-Found matching Class GUID: ACPI\ACPI1234\0
+Found matching Class GUID: ACPI\ECTST0001\0
 \\.\GLOBALROOT\Device\00000016
 DevicePath: \\.\GLOBALROOT\Device\00000016
 Opened device successfully

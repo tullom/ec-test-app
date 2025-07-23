@@ -1,0 +1,24 @@
+[package]
+name = "ec_demo"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "RUST based UI to demo EC features"
+authors = ["Phil Weber <philweber@microsoft.com>"]
+repository = "https://github.com/OpenDevicePartnership/ec_demo"
+rust-version = "1.85"
+
+[dependencies]
+# dependencies for all targets
+crossterm = "0.28.1"
+ratatui = "0.29.0"
+color-eyre = "0.6.3"
+strum = { version = "0.27", default-features = false, features = ["derive"] }
+log = "0.4"
+env_logger = "0.10"
+
+[lints.clippy]
+suspicious = "forbid"
+correctness = "forbid"
+perf = "forbid"
+style = "forbid"

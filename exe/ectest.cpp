@@ -1,19 +1,31 @@
 /*
- ** Copyright (c) Microsoft Corporation
- *
- *  File: ectest.cpp
- *  Description: An application that allows us to call ACPI Methods to validate EC functionality
- *
- *  Author: Phil Weber
- *  Date: 10/24/2024
- */
+MIT License
 
+Copyright (c) 2025 Open Device Partnership
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
 
 #include <DriverSpecs.h>
 _Analysis_mode_(_Analysis_code_type_user_code_)
 
 #define INITGUID
-
 #include <windows.h>
 #include <strsafe.h>
 #include <cfgmgr32.h>
@@ -26,150 +38,43 @@ _Analysis_mode_(_Analysis_code_type_user_code_)
 #include <devioctl.h>
 #include "..\inc\ectest.h"
 
+extern "C" {
+    #include "..\inc\eclib.h"
+}
+
 //#define EC_TEST_NOTIFICATIONS
 //#define EC_TEST_SHARED_BUFFER
 
-#define MAX_ACPIPATH_LENGTH 64
-#define MAX_DEVPATH_LENGTH  64
-
-// GUID defined in the KMDF INX file for ectest.sys
-// {5362ad97-ddfe-429d-9305-31c0ad27880a}
-const GUID GUID_DEVCLASS_ECTEST = { 0x5362ad97, 0xddfe, 0x429d, { 0x93, 0x05, 0x31, 0xc0, 0xad, 0x27, 0x88, 0x0a } };
-
-static WCHAR gDevicePath[MAX_DEVPATH_LENGTH];
-static char gMethodName[MAX_ACPIPATH_LENGTH];
+#define ACPI_OUTPUT_BUFFER_SIZE 1024
 
 // Global event handle
 static HANDLE gExitEvent = NULL;
 
 /*
- * Function: BOOL GetGUIDPath
+ * Function: void DumpAcpi
  *
  * Description:
- * The GetGUIDPath function retrieves the device path for a specified device class GUID and device name.
- * It searches for devices of the specified class, checks for a matching device instance ID, and retrieves the device path if a match is found.
- *
- * Parameters:
- * GUID GUID_DEVCLASS_SYSTEM: The GUID of the device class to search for.
- * wchar_t *name: The name of the device to match against the device instance ID.
- *
- * Return Value:
- * Returns TRUE if the device path is successfully retrieved, otherwise returns FALSE.
- */
-BOOL GetGUIDPath(
-    _In_ GUID GUID_DEVCLASS_SYSTEM,
-    _In_ wchar_t *name
-    )
-{
-    BOOL bRet = TRUE;
-    static BOOL bDeviceFound = FALSE;
-
-    // Don't spend time to look up the device again if we already have the handle
-    if(bDeviceFound) {
-        return bRet;
-    }
-
-    // Get devices of ACPI class there should only be one on the system
-    HDEVINFO DeviceInfoSet = SetupDiGetClassDevs(&GUID_DEVCLASS_SYSTEM, NULL, NULL, DIGCF_PRESENT);
-    SP_DEVINFO_DATA DeviceInfoData;
-    DWORD DeviceIndex = 0;
-
-    ZeroMemory(&DeviceInfoData, sizeof(SP_DEVINFO_DATA));
-    DeviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
-    while (SetupDiEnumDeviceInfo(
-                                DeviceInfoSet,
-                                DeviceIndex,
-                                &DeviceInfoData)) {
-        // Read Device instance path and check for ACPI_HAL\PNP0C08 as this is the ACPI driver
-        DEVPROPTYPE PropertyType;
-        DWORD RequiredSize = 0;
-        BYTE PropertyBuffer[128];
-        bRet = SetupDiGetDevicePropertyW(
-                                DeviceInfoSet,
-                                &DeviceInfoData,
-                                &DEVPKEY_Device_InstanceId,
-                                &PropertyType,
-                                PropertyBuffer,
-                                sizeof(PropertyBuffer),
-                                &RequiredSize,
-                                0);
-
-        if(RequiredSize > 0) {
-            printf("Found matching Class GUID: %ls\n", (wchar_t *)PropertyBuffer);
-            // Check if string contains PNP0C08 then this is our main ACPI device
-            if( wcsstr((wchar_t*)PropertyBuffer,name) ) {
-                bRet = SetupDiGetDevicePropertyW(
-                                        DeviceInfoSet,
-                                        &DeviceInfoData,
-                                        &DEVPKEY_Device_PDOName,
-                                        &PropertyType,
-                                        PropertyBuffer,
-                                        sizeof(PropertyBuffer),
-                                        &RequiredSize,
-                                        0);
-
-                if(RequiredSize > 0) {
-                    StringCchPrintf(gDevicePath,sizeof(gDevicePath),L"\\\\.\\GLOBALROOT%ls",(wchar_t*)PropertyBuffer);
-                    printf("%ls\n", gDevicePath);
-                    break;
-                }
-            }
-        }
-
-        DeviceIndex++;
-
-    }
-
-    if (DeviceInfoSet) {
-        SetupDiDestroyDeviceInfoList(DeviceInfoSet);
-    }
-
-    return TRUE;
-}
-
-/*
- * Function: int EvaluateAcpi
- *
- * Description:
- * The EvaluateAcpi function evaluates an ACPI method on a specified device and prints the results.
+ * The DumpAcpi function evaluates an ACPI method on a specified device and prints the results.
  * It sends an IOCTL request to the device to execute the ACPI method and processes the returned data.
  *
  * Parameters:
- * HANDLE hDevice: A handle to the device on which the ACPI method is to be evaluated.
+ * methodName: Method of ACPI to evaluate and dump
  *
  * Return Value:
- * Returns ERROR_SUCCESS if the ACPI method is successfully evaluated, otherwise returns ERROR_INVALID_PARAMETER.
+ * None.
  */
-int EvaluateAcpi(
-    _In_ HANDLE hDevice
-    )
+void DumpAcpi(char *methodName )
 {
-    char OutputBuffer[sizeof(ACPI_EVAL_OUTPUT_BUFFER_V1)+256];
-    ACPI_EVAL_INPUT_BUFFER_V1_EX InputBuffer;
-    ACPI_EVAL_OUTPUT_BUFFER_V1 *AcpiOut = (ACPI_EVAL_OUTPUT_BUFFER_V1 *)OutputBuffer;
-    BOOL bRc;
-    ULONG bytesReturned;
 
-    printf("\nCalling DeviceIoControl EVAL_ACPI_METHOD: %s\n",gMethodName);
-    memset(OutputBuffer, 0, sizeof(OutputBuffer));
-    memset(&InputBuffer, 0, sizeof(InputBuffer));
-    InputBuffer.Signature = ACPI_EVAL_INPUT_BUFFER_SIGNATURE_EX;
-    strncpy_s(InputBuffer.MethodName,gMethodName,sizeof(InputBuffer.MethodName));
+    BYTE buffer[ACPI_OUTPUT_BUFFER_SIZE];
+    ACPI_EVAL_OUTPUT_BUFFER_V1 *AcpiOut = (ACPI_EVAL_OUTPUT_BUFFER_V1 *)buffer;
+    size_t buffer_size = sizeof(buffer);
 
-    bRc = DeviceIoControl ( hDevice,
-                            (DWORD) IOCTL_ACPI_EVAL_METHOD_EX,
-                            &InputBuffer,
-                            sizeof(InputBuffer),
-                            OutputBuffer,
-                            sizeof( OutputBuffer),
-                            &bytesReturned,
-                            NULL
-                            );
+    int status = EvaluateAcpi(methodName, strlen(methodName), buffer, &buffer_size );
 
-    if ( !bRc )
-    {
-        printf ( "Error in DeviceIoControl : %d\n", GetLastError());
-        return ERROR_INVALID_PARAMETER;
+    if(status != ERROR_SUCCESS) {
+        printf("EvaluateAcpi failed, status: 0x%x", status);
+        return;
     }
 
     // Print the raw output data returned from ACPI function
@@ -177,6 +82,7 @@ int EvaluateAcpi(
     printf("  Signature: 0x%x\n", AcpiOut->Signature);
     printf("  Length: 0x%x\n", AcpiOut->Length);
     printf("  Count: 0x%x\n", AcpiOut->Count);
+
     // Dump out the contents of each Argument separately
     ACPI_METHOD_ARGUMENT_V1 *Argument = AcpiOut->Argument;
 
@@ -208,15 +114,13 @@ int EvaluateAcpi(
         printf(" 0x%x",((BYTE *)AcpiOut)[i]);
     }
     printf("\n\n");
-
-    return ERROR_SUCCESS;
 }
 
 /*
- * Function: int parse_cmdline
+ * Function: int ParseCmdline
  *
  * Description:
- * The parse_cmdline function parses the command line arguments and sets the ACPI method name if provided.
+ * The ParseCmdline function parses the command line arguments and sets the ACPI method name if provided.
  * It checks the number of arguments and prints usage instructions if the required arguments are not provided.
  *
  * Parameters:
@@ -231,63 +135,16 @@ int ParseCmdline(
     _In_ char ** argv
     )
 {
-    if (argc > 2)  {
-        strncpy_s(gMethodName,argv[2],MAX_ACPIPATH_LENGTH);
+    if (argc > 2) {
+        DumpAcpi(argv[2]);
     } else {
         printf("Usage:\n");
-        printf("    ec-test-app.exe   --- Print this help\n");
-        printf("    ec-test-app.exe -acpi \\_SB.ECT0._STA  --- Evaluate given ACPI method\n");
+        printf("    ectest.exe                        --- Print this help\n");
+        printf("    ectest.exe -acpi \\_SB.ECT0.NEVT  --- Evaluate given ACPI method\n");
         return ERROR_INVALID_PARAMETER;
     }
 
     return ERROR_SUCCESS;
-}
-
-/*
- * Function: int GetKMDFDriverHandle
- *
- * Description:
- * The GetKMDFDriverHandle function retrieves a handle to a Kernel-Mode Driver Framework (KMDF) driver.
- * It searches for the device path using a specified device class GUID and device name, and then opens the device.
- *
- * Parameters:
- * DWORD flags: Flags to open file handle with
- * HANDLE *hDevice: A pointer to a handle that will receive the device handle.
- *
- * Return Value:
- * Returns ERROR_SUCCESS if the device handle is successfully retrieved, otherwise returns ERROR_INVALID_HANDLE.
-*/
-int GetKMDFDriverHandle(
-    _In_ DWORD flags,
-    _Out_ HANDLE *hDevice
-    )
-{
-    int status = ERROR_SUCCESS;
-
-    if (!GetGUIDPath(GUID_DEVCLASS_ECTEST,L"ETST0001") )
-    {
-        status = ERROR_INVALID_HANDLE;
-        goto CleanUp;
-    }
-
-    printf("DevicePath: %ws\n", gDevicePath);
-    *hDevice = CreateFile(gDevicePath,
-                         GENERIC_READ|GENERIC_WRITE,
-                         FILE_SHARE_READ | FILE_SHARE_WRITE,
-                         NULL,
-                         OPEN_EXISTING,
-                         flags,
-                         NULL );
-
-    if (*hDevice == INVALID_HANDLE_VALUE) {
-        printf("Failed to open device. Error %d\n",GetLastError());
-        status = ERROR_INVALID_HANDLE;
-        goto CleanUp;
-    }
-
-    printf("Opened device successfully\n");
-CleanUp:
-    return status;
 }
 
 /*
@@ -527,16 +384,8 @@ main(
     )
 {
 
-    HANDLE hDevice = NULL;
     HANDLE hThread = NULL;
     int status = ERROR_SUCCESS;
-
-    UINT8 *ptr = (UINT8*)&GUID_DEVCLASS_ECTEST;
-    printf("GUID:  {5362ad97-ddfe-429d-9305-31c0ad27880a}\n");
-    for(int i=0 ; i < 16; i++) {
-        printf("%02x",ptr[i]);
-    }
-    printf("\n\n");
 
     // Keep only one instance of the application running
     // This makes the App & Driver simple by not allowing multiple instances
@@ -550,16 +399,6 @@ main(
 
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         printf("Another instance of the application is already running.\n");
-        goto CleanUp;
-    }
-
-    status = ParseCmdline(argc,argv);
-    if(status != ERROR_SUCCESS) {
-        goto CleanUp;
-    }
-
-    status = GetKMDFDriverHandle(0,&hDevice);
-    if(status != ERROR_SUCCESS) {
         goto CleanUp;
     }
 
@@ -579,18 +418,18 @@ main(
     }
 #endif // EC_TEST_NOTIFICATIONS
 
-    // Evaluate ACPI function
-    status = EvaluateAcpi(hDevice);
+    status = ParseCmdline(argc,argv);
+    if(status != ERROR_SUCCESS) {
+        goto CleanUp;
+    }
 
-    if(status == ERROR_SUCCESS ) {
-        // Loop until we hit "q to quit"
-        printf("Waiting for notification press 'q' to quit.\n");
-        int key;
-        for(;;) {
-            key = getchar();
-            if( key == 'q') {
-                break;
-            }
+    // Loop until we hit "q to quit"
+    printf("Waiting for notification press 'q' to quit.\n");
+    int key;
+    for(;;) {
+        key = getchar();
+        if( key == 'q') {
+            break;
         }
     }
 
@@ -603,9 +442,7 @@ CleanUp:
 
     if(hThread) CloseHandle(hThread);
     if(gExitEvent) CloseHandle(gExitEvent);
-
-    if(hDevice) CloseHandle(hDevice);
     if(hMutex) CloseHandle(hMutex);
-    return status;
 
+    return status;
 }
