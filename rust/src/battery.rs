@@ -11,6 +11,7 @@ use ratatui::{
 const BATGAUGE_COLOR: Color = tailwind::ORANGE.c800;
 const LABEL_COLOR: Color = tailwind::SLATE.c200;
 
+/// BST: ACPI Battery Status
 #[derive(Default)]
 pub struct BstData {
     state: u32,
@@ -20,6 +21,7 @@ pub struct BstData {
 }
 
 /*
+/// BIX: ACPI Battery Informatino eXtended
 #[derive(Default)]
 pub struct BixData {
     revision: u32,
