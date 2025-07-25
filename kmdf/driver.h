@@ -1,13 +1,11 @@
 /*++
 Module Name:
-
     driver.h
 
 Abstract:
 
     This is a C version of a very simple driver that illustrates
     how to use the driver framework and demonstrates best practices.
-
 --*/
 
 #define INITGUID

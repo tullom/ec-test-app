@@ -1,14 +1,10 @@
 /*++
-
 Module Name:
-
     device.h
 
 Abstract:
-
     This is a C version of a very simple sample driver that illustrates
     how to use the driver framework and demonstrates best practices.
-
 --*/
 
 #include "public.h"

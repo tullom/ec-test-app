@@ -1,17 +1,12 @@
 /*++
-
 Module Name:
-
     trace.h
 
 Abstract:
-
     Header file for the debug tracing related function definitions and macros.
 
 Environment:
-
     Kernel mode
-
 --*/
 
 #include <evntrace.h> // For TRACE_LEVEL definitions

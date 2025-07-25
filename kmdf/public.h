@@ -1,6 +1,5 @@
 /*++
 Module Name:
-
     public.h
 
 Abstract:
@@ -8,9 +7,7 @@ Abstract:
     This module contains the common declarations shared by driver
     and user applications.
 
-
 Environment:
-
     user and kernel
 
 --*/
