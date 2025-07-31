@@ -161,8 +161,8 @@ int GetKMDFDriverHandle(
  * Description:
  *   Evaluates an ACPI method on a specified device and returns the result.
  * Parameters:
- *   const char* eval     - ACPI method name.
- *   size_t eval_len      - Length of the method name.
+ *   void* acpi_input     - ACPI_EVAL_INPUT_xxxx structure pointer passed through
+ *   size_t input_len     - Length of input structure
  *   BYTE* buffer         - Output buffer for the result.
  *   size_t* buf_len      - Input: size of buffer; Output: bytes returned.
  * Return Value:
@@ -170,22 +170,16 @@ int GetKMDFDriverHandle(
  */
 ECLIB_API
 int EvaluateAcpi(
-    _In_ const char* eval,
-    _In_ size_t eval_len,
+    _In_ void* acpi_input,
+    _In_ size_t input_len,
     _Out_ BYTE* buffer,
     _In_ size_t* buf_len
 )
 {
     WCHAR pathbuf[MAX_DEVPATH_LENGTH];
-    ACPI_EVAL_INPUT_BUFFER_V1_EX InputBuffer = { 0 };
     ULONG bytesReturned;
 
-    memset(buffer, 0, *buf_len);
-    InputBuffer.Signature = ACPI_EVAL_INPUT_BUFFER_SIGNATURE_EX;
-    strncpy_s(InputBuffer.MethodName, sizeof(InputBuffer.MethodName), eval, eval_len);
-
     // Look up handle to ACPI entry
-
     wchar_t* dpath = GetGUIDPath(GUID_DEVCLASS_ECTEST, L"ETST0001", pathbuf, sizeof(pathbuf));
     if (dpath == NULL) {
         return ERROR_INVALID_PARAMETER;
@@ -202,8 +196,8 @@ int EvaluateAcpi(
     if (hDevice != INVALID_HANDLE_VALUE) {
         if( DeviceIoControl(hDevice,
             (DWORD)IOCTL_ACPI_EVAL_METHOD_EX,
-            &InputBuffer,
-            sizeof(InputBuffer),
+            acpi_input,
+            (DWORD)input_len,
             buffer,
             (DWORD)*buf_len,
             &bytesReturned,

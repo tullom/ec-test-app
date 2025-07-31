@@ -36,6 +36,7 @@ _Analysis_mode_(_Analysis_code_type_user_code_)
 #include <Devpkey.h>
 #include <Acpiioct.h>
 #include <devioctl.h>
+#include <Objbase.h>
 #include "..\inc\ectest.h"
 
 extern "C" {
@@ -46,6 +47,7 @@ extern "C" {
 //#define EC_TEST_SHARED_BUFFER
 
 #define ACPI_OUTPUT_BUFFER_SIZE 1024
+#define MAX_STRING_LEN 256
 
 // Global event handle
 static HANDLE gExitEvent = NULL;
@@ -63,18 +65,18 @@ static HANDLE gExitEvent = NULL;
  * Return Value:
  * None.
  */
-void DumpAcpi(char *methodName )
+int DumpAcpi(ACPI_EVAL_INPUT_BUFFER_COMPLEX_V1_EX *acpiinput )
 {
 
     BYTE buffer[ACPI_OUTPUT_BUFFER_SIZE];
     ACPI_EVAL_OUTPUT_BUFFER_V1 *AcpiOut = (ACPI_EVAL_OUTPUT_BUFFER_V1 *)buffer;
     size_t buffer_size = sizeof(buffer);
 
-    int status = EvaluateAcpi(methodName, strlen(methodName), buffer, &buffer_size );
+    int status = EvaluateAcpi((void *)acpiinput, sizeof(ACPI_EVAL_INPUT_BUFFER_COMPLEX_V1_EX) + acpiinput->Size, buffer, &buffer_size );
 
     if(status != ERROR_SUCCESS) {
-        printf("EvaluateAcpi failed, status: 0x%x", status);
-        return;
+        printf("EvaluateAcpi failed, status: 0x%x\n", status);
+        return status;
     }
 
     // Print the raw output data returned from ACPI function
@@ -114,6 +116,17 @@ void DumpAcpi(char *methodName )
         printf(" 0x%x",((BYTE *)AcpiOut)[i]);
     }
     printf("\n\n");
+
+    return ERROR_SUCCESS;
+}
+
+
+BYTE ToHex(char c)
+{
+    if(c >= '0' && c <= '9') return c - '0';
+    if(c >= 'a' && c <= 'f') return (c - 'a' + 10);
+    if(c >= 'A' && c <= 'F') return (c - 'A' + 10);
+    return 0;
 }
 
 /*
@@ -135,16 +148,86 @@ int ParseCmdline(
     _In_ char ** argv
     )
 {
-    if (argc > 2) {
-        DumpAcpi(argv[2]);
-    } else {
+    // Must always have at least 3 parameters
+    if( argc < 3 ) {
         printf("Usage:\n");
         printf("    ectest.exe                        --- Print this help\n");
         printf("    ectest.exe -acpi \\_SB.ECT0.NEVT  --- Evaluate given ACPI method\n");
         return ERROR_INVALID_PARAMETER;
     }
 
-    return ERROR_SUCCESS;
+    BYTE buffer[ACPI_OUTPUT_BUFFER_SIZE];
+    ACPI_EVAL_INPUT_BUFFER_COMPLEX_V1_EX *params = (ACPI_EVAL_INPUT_BUFFER_COMPLEX_V1_EX *)buffer;
+    params->Signature = ACPI_EVAL_INPUT_BUFFER_COMPLEX_SIGNATURE_EX;
+    strncpy_s(params->MethodName,sizeof(params->MethodName),argv[2],strlen(argv[2]) );
+    params->ArgumentCount = argc - 3;
+    params->Size = 0;
+
+    printf("Signature: 0x%x\n", params->Signature);
+
+    // Iterate through the argument creation
+    ACPI_METHOD_ARGUMENT_V1 *arg = &params->Argument[0];
+
+    // Loop through each remaining parameters and convert to correct type
+    for(size_t i=0; i < params->ArgumentCount; i++) {
+        // GUID must be in this exact format {25cb5207-ac36-427d-aaef-3aa78877d27e}
+        if(argv[i+3][0] == '{') {
+            size_t str_len = strlen(argv[i+3]);
+            printf("Converting to GUID len: %i\n", (int)str_len);
+            if(str_len != 38) {
+                printf("Please provide GUID in this format: {25cb5207-ac36-427d-aaef-3aa78877d27e}");
+                return ERROR_INVALID_PARAMETER;
+            }
+
+            arg->Type = ACPI_METHOD_ARGUMENT_BUFFER;
+            arg->DataLength = 16;
+            char *guid_ptr = argv[i+3] + 1;
+            arg->Data[3] = ToHex(guid_ptr[0]) << 4 | ToHex(guid_ptr[1]); guid_ptr+=2;
+            arg->Data[2] = ToHex(guid_ptr[0]) << 4 | ToHex(guid_ptr[1]); guid_ptr+=2;
+            arg->Data[1] = ToHex(guid_ptr[0]) << 4 | ToHex(guid_ptr[1]); guid_ptr+=2;
+            arg->Data[0] = ToHex(guid_ptr[0]) << 4 | ToHex(guid_ptr[1]); guid_ptr+=2;
+            guid_ptr++;
+            arg->Data[5] = ToHex(guid_ptr[0]) << 4 | ToHex(guid_ptr[1]); guid_ptr+=2;
+            arg->Data[4] = ToHex(guid_ptr[0]) << 4 | ToHex(guid_ptr[1]); guid_ptr+=2;
+            guid_ptr++;
+            arg->Data[7] = ToHex(guid_ptr[0]) << 4 | ToHex(guid_ptr[1]); guid_ptr+=2;
+            arg->Data[6] = ToHex(guid_ptr[0]) << 4 | ToHex(guid_ptr[1]); guid_ptr+=2;
+            guid_ptr++;
+            arg->Data[8] = ToHex(guid_ptr[0]) << 4 | ToHex(guid_ptr[1]); guid_ptr+=2;
+            arg->Data[9] = ToHex(guid_ptr[0]) << 4 | ToHex(guid_ptr[1]); guid_ptr+=2;
+            guid_ptr++;
+            arg->Data[10] = ToHex(guid_ptr[0]) << 4 | ToHex(guid_ptr[1]); guid_ptr+=2;
+            arg->Data[11] = ToHex(guid_ptr[0]) << 4 | ToHex(guid_ptr[1]); guid_ptr+=2;
+            arg->Data[12] = ToHex(guid_ptr[0]) << 4 | ToHex(guid_ptr[1]); guid_ptr+=2;
+            arg->Data[13] = ToHex(guid_ptr[0]) << 4 | ToHex(guid_ptr[1]); guid_ptr+=2;
+            arg->Data[14] = ToHex(guid_ptr[0]) << 4 | ToHex(guid_ptr[1]); guid_ptr+=2;
+            arg->Data[15] = ToHex(guid_ptr[0]) << 4 | ToHex(guid_ptr[1]); guid_ptr+=2;
+
+            for(int j=0 ;j < 16; j++) {
+                printf("arg->Data[%i] = 0x%x\n",j,arg->Data[j]);
+            }
+            // Copy the GUID to byte array
+        } else if(argv[i+3][0] == '0') {
+            arg->Type = ACPI_METHOD_ARGUMENT_INTEGER;
+            arg->Argument = static_cast<int>(strtol(argv[i+3], nullptr, 0));
+            arg->DataLength = 4; // Length of DWORD
+            printf("Converting to Number: 0x%x\n",arg->Argument);
+        } else {
+            arg->Type = ACPI_METHOD_ARGUMENT_STRING;
+            arg->DataLength = (USHORT)(strlen(argv[i+3]) + 1);
+            strncpy_s((char *)arg->Data, MAX_STRING_LEN, argv[i+3], arg->DataLength);
+            printf("Converting to String: %s\n", arg->Data);
+        }
+        params->Size += arg->DataLength;
+
+        // Increment to next value
+        arg = (ACPI_METHOD_ARGUMENT_V1 *)((UINT64)arg + sizeof(USHORT)*2 + arg->DataLength);
+    }
+
+    // Evaluate and dump output
+    int status = DumpAcpi(params);
+
+    return status;
 }
 
 /*

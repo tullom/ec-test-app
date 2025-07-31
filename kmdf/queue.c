@@ -355,7 +355,9 @@ WorkItemCallback(
 {
     PWORKITEM_CONTEXT context = WorkItemGetContext(WorkItem);
 
-    ACPI_EVAL_INPUT_BUFFER_V1_EX *inputBuffer = NULL;
+    // Input buffer should be one of the ACPI buffer types documented here
+    // https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/acpiioct/
+    void *inputBuffer = NULL;
     WDF_MEMORY_DESCRIPTOR inputMemDesc;
     WDF_MEMORY_DESCRIPTOR outputMemDesc;
     WDFMEMORY outputMemory = WDF_NO_HANDLE;
@@ -391,7 +393,9 @@ WorkItemCallback(
         goto Cleanup;
     }
 
-    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&inputMemDesc, inputBuffer, sizeof(ACPI_EVAL_INPUT_BUFFER_V1_EX));
+
+
+    WDF_MEMORY_DESCRIPTOR_INIT_BUFFER(&inputMemDesc, inputBuffer, (ULONG)bufSize);
     WDF_MEMORY_DESCRIPTOR_INIT_HANDLE(&outputMemDesc, outputMemory, NULL);
     
     LARGE_INTEGER timestamp;
@@ -521,28 +525,8 @@ ECTestEvtIoDeviceControl(
     {
     case IOCTL_ACPI_EVAL_METHOD_EX:
         Trace(TRACE_LEVEL_INFORMATION, TRACE_QUEUE,"IOCTL_ACPI_EVAL_METHOD_EX\n");
-        // For bufffered ioctls WdfRequestRetrieveInputBuffer &
-        // WdfRequestRetrieveOutputBuffer return the same buffer
-        // pointer (Irp->AssociatedIrp.SystemBuffer), so read the
-        // content of the buffer before writing to it.
-        size_t bufSize = 0;
-        ACPI_EVAL_INPUT_BUFFER_V1_EX *InputBuffer = NULL;
 
-        status = WdfRequestRetrieveInputBuffer(Request, 0, &InputBuffer, &bufSize);
-        if(!NT_SUCCESS(status)) {
-            status = STATUS_INSUFFICIENT_RESOURCES;
-            break;
-        }
-    
-        // Check to make sure this buffer was populated properly
-        if(InputBuffer->Signature != ACPI_EVAL_INPUT_BUFFER_SIGNATURE_EX)
-        {
-            status = STATUS_INVALID_PARAMETER;
-            break;
-        }
-
-        // Don't complete the request here it will be completed in the callback
-
+        // Request is retrieved and handled in the callback
         status = CreateAndEnqueueWorkItem(device, Request);
         // If we enqueue it successfully it will be completed later, otherwise complete with status
         if (NT_SUCCESS(status)) {
