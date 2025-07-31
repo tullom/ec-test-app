@@ -36,7 +36,6 @@ _Analysis_mode_(_Analysis_code_type_user_code_)
 #include <Devpkey.h>
 #include <Acpiioct.h>
 #include <devioctl.h>
-#include <Objbase.h>
 #include "..\inc\ectest.h"
 
 extern "C" {
@@ -120,7 +119,18 @@ int DumpAcpi(ACPI_EVAL_INPUT_BUFFER_COMPLEX_V1_EX *acpiinput )
     return ERROR_SUCCESS;
 }
 
-
+/*
+ * Function: BYTE ToHex
+ *
+ * Description:
+ * This function converts an ASCII character to corresponding hex value or returns 0 if invalid
+ *
+ * Parameters:
+ * c: Character to convert
+ *
+ * Return Value:
+ * BYTE value between 0 and 15 if valid; 0 otherwise.
+ */
 BYTE ToHex(char c)
 {
     if(c >= '0' && c <= '9') return c - '0';
