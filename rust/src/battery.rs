@@ -107,7 +107,7 @@ impl Battery {
         let bat_status = Self::get_bst();
         //let bat_info = Self::get_bix();
         //let bat_percent = (bat_status.capacity / bat_info.design_capacity) * 100;
-        let bat_percent = bat_status.capacity / 120; // Use fake values till BIX is available
+        let bat_percent = bat_status.capacity / 82; // Use fake values till BIX is available
 
         let status_title = Self::title_block("Battery Status");
         Paragraph::new(Self::create_status(area, bat_status))
@@ -149,7 +149,7 @@ impl Battery {
     }
     */
 
-    fn title_block(title: &str) -> Block {
+    fn title_block(title: &str) -> Block<'_> {
         let title = Line::from(title);
         Block::new()
             .borders(Borders::NONE)
@@ -161,8 +161,8 @@ impl Battery {
     fn create_status(_area: Rect, status: BstData) -> Vec<Line<'static>> {
         vec![
             Line::raw(format!("State:               {:?}", status.state)),
-            Line::raw(format!("Present Rate:        {:?}mAh", status.rate)),
-            Line::raw(format!("Remaining Capacity:  {:?}mAh", status.capacity)),
+            Line::raw(format!("Present Rate:        {:?}mWh", status.rate)),
+            Line::raw(format!("Remaining Capacity:  {:?}mWh", status.capacity)),
             Line::raw(format!("Present Voltage:     {:?}mV", status.voltage)),
         ]
     }

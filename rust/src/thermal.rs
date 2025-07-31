@@ -18,7 +18,7 @@ impl Thermal {
     }
 }
 
-fn title_block(title: &str) -> Block {
+fn title_block(title: &str) -> Block<'_> {
     let title = Line::from(title);
     Block::new()
         .borders(Borders::NONE)
