@@ -36,6 +36,8 @@ _Analysis_mode_(_Analysis_code_type_user_code_)
 #include <Devpkey.h>
 #include <Acpiioct.h>
 #include <devioctl.h>
+#include <Objbase.h>
+#include <memory>
 #include "..\inc\ectest.h"
 
 extern "C" {
@@ -46,6 +48,8 @@ extern "C" {
 //#define EC_TEST_SHARED_BUFFER
 
 #define ACPI_OUTPUT_BUFFER_SIZE 1024
+#define MAX_STRING_LEN 256
+#define CMD_MIN_ARG_COUNT 3  // Always need ectest.exe -acpi <method>
 
 // Global event handle
 static HANDLE gExitEvent = NULL;
@@ -63,18 +67,18 @@ static HANDLE gExitEvent = NULL;
  * Return Value:
  * None.
  */
-void DumpAcpi(char *methodName )
+int DumpAcpi(ACPI_EVAL_INPUT_BUFFER_COMPLEX_V1_EX *acpiinput )
 {
 
     BYTE buffer[ACPI_OUTPUT_BUFFER_SIZE];
     ACPI_EVAL_OUTPUT_BUFFER_V1 *AcpiOut = (ACPI_EVAL_OUTPUT_BUFFER_V1 *)buffer;
     size_t buffer_size = sizeof(buffer);
 
-    int status = EvaluateAcpi(methodName, strlen(methodName), buffer, &buffer_size );
+    int status = EvaluateAcpi((void *)acpiinput, sizeof(ACPI_EVAL_INPUT_BUFFER_COMPLEX_V1_EX) + acpiinput->Size, buffer, &buffer_size );
 
     if(status != ERROR_SUCCESS) {
-        printf("EvaluateAcpi failed, status: 0x%x", status);
-        return;
+        printf("EvaluateAcpi failed, status: 0x%x\n", status);
+        return status;
     }
 
     // Print the raw output data returned from ACPI function
@@ -114,6 +118,51 @@ void DumpAcpi(char *methodName )
         printf(" 0x%x",((BYTE *)AcpiOut)[i]);
     }
     printf("\n\n");
+
+    return ERROR_SUCCESS;
+}
+
+/*
+ * Function: int CharToGUID
+ *
+ * Description:
+ * This function converts an ASCII character to corresponding hex value or returns 0 if invalid
+ *
+ * Parameters:
+ * out: Output BYTE array that contains GUID values
+ * out_len: Length of output buffer must be at least 16 bytes
+ * guid: Input pointer to char * of string representation of GUID
+ * guid_len: Must be 39 bytes including terminating \0
+ *
+ * Return Value:
+ * ERROR_SUCESS or failure code
+ */
+int CharToGUID(BYTE *out, size_t out_len, char *guid, size_t guid_len)
+{
+    // Make sure in and out buffers are lengths and format we expect
+    if(out_len < 16 || guid_len != 39) {
+        return ERROR_INVALID_PARAMETER;
+    }
+    
+    // Convert char* to wide string
+    wchar_t wideGuidStr[39]; // GUID string is 38 chars + null terminator
+    size_t bytesReturned = 0;
+    int status = mbstowcs_s(&bytesReturned, wideGuidStr, guid, guid_len);
+    if( status != ERROR_SUCCESS) {
+        return status;
+    }
+
+    IID uuid;
+    HRESULT hr = IIDFromString(wideGuidStr, &uuid);
+
+    if (SUCCEEDED(hr)) {
+        // Copy data to guid buffer
+        memcpy(out, &uuid, sizeof(IID));
+    } else {
+        return ERROR_INVALID_PARAMETER;
+    }
+
+    return ERROR_SUCCESS;
 }
 
 /*
@@ -135,16 +184,96 @@ int ParseCmdline(
     _In_ char ** argv
     )
 {
-    if (argc > 2) {
-        DumpAcpi(argv[2]);
-    } else {
+
+    // Must always have at least 3 parameters
+    if( argc < CMD_MIN_ARG_COUNT ) {
         printf("Usage:\n");
         printf("    ectest.exe                        --- Print this help\n");
-        printf("    ectest.exe -acpi \\_SB.ECT0.NEVT  --- Evaluate given ACPI method\n");
+        printf("    ectest.exe -acpi \\_SB.ECT0.NEVT  --- Evaluate given ACPI method with no arguments\n");
+        printf("    ectest.exe -acpi \\_SB.ECT0.TDSM {07ff6382-e29a-47c9-ac87-e79dad71dd82} 1 3 0\n");
+        printf("               GUID - {xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}\n");
+        printf("            Integer - 0x123ABC 1234 -1234\n");
+        printf("             String - \'TestString\'\n");
+
+        return ERROR_INVALID_PARAMETER;
+    } else if(argc > CMD_MIN_ARG_COUNT + 7) {
+        // ACPI function cannot accept more than 7 arguments
+        printf("Exceeded 7 ACPI arguments!\n");
         return ERROR_INVALID_PARAMETER;
     }
 
-    return ERROR_SUCCESS;
+    // Create new buffer based on number of parameters and max string size
+    size_t buffer_max = (argc-CMD_MIN_ARG_COUNT)*MAX_STRING_LEN + sizeof(ACPI_EVAL_INPUT_BUFFER_COMPLEX_V1_EX);
+    std::unique_ptr<BYTE[]> buffer(new BYTE[buffer_max]); // Throws exception if it fails, auto frees
+
+    auto* params = reinterpret_cast<ACPI_EVAL_INPUT_BUFFER_COMPLEX_V1_EX*>(buffer.get());
+    params->Signature = ACPI_EVAL_INPUT_BUFFER_COMPLEX_SIGNATURE_EX;
+    strncpy_s(params->MethodName, sizeof(params->MethodName), argv[2], strlen(argv[2]));
+    params->ArgumentCount = argc - 3;
+    params->Size = 0;
+
+
+    printf("Signature: 0x%x\n", params->Signature);
+
+    // Iterate through the argument creation
+    ACPI_METHOD_ARGUMENT_V1 *arg = &params->Argument[0];
+
+    // Loop through each remaining parameters and convert to correct type
+    for(size_t i=0; i < params->ArgumentCount; i++) {
+        char *carg = argv[i+CMD_MIN_ARG_COUNT];
+
+        // Make sure this parameter will not overflow our buffer allocation
+        size_t str_len = strlen(carg);
+        if( ((UINT64)arg->Data - (UINT64)buffer.get()) + str_len > buffer_max ) {
+            printf("Parameters too long\n");
+            return ERROR_INVALID_PARAMETER;
+        }
+        
+        // GUID must be in this exact format {25cb5207-ac36-427d-aaef-3aa78877d27e}
+        if(carg[0] == '{') {
+            int status = CharToGUID(arg->Data, 16, carg, str_len+1); // Include terminating \0 in length
+            if(status != ERROR_SUCCESS) {
+                printf("Failed to convert GUID\n");
+                printf("Please provide GUID in this format: {25cb5207-ac36-427d-aaef-3aa78877d27e}\n");
+                return status;
+            }
+            // Print out the GUID
+            printf("Converted GUID: {");
+            for(size_t j=0; j < 16; j++) {
+                printf("0x%x,", arg->Data[j]);
+            }
+            printf("}\n");
+
+            arg->Type = ACPI_METHOD_ARGUMENT_BUFFER;
+            arg->DataLength = 16;
+
+        } else if(carg[0] == '\'') {
+            // Pull off the start and ending ' '
+            arg->Type = ACPI_METHOD_ARGUMENT_STRING;
+            arg->DataLength = static_cast<USHORT>(strlen(carg)-1);
+            strncpy_s(reinterpret_cast<char*>(arg->Data), MAX_STRING_LEN, &carg[1], arg->DataLength-1);
+            printf("Converting to String: %s\n", arg->Data);
+        } else {
+            char *endptr = nullptr;
+            arg->Type = ACPI_METHOD_ARGUMENT_INTEGER;
+            arg->DataLength = 4; // Length of DWORD
+            arg->Argument = strtol(carg, &endptr, 0); // Try to guess the base
+            if(endptr == carg) {
+                printf("Failed to convert number\n");
+                return ERROR_INVALID_PARAMETER;
+            }
+            printf("Converted to Number: 0x%x\n",arg->Argument);
+        }
+
+        params->Size += arg->DataLength;
+
+        // Increment to next value
+        arg = reinterpret_cast<ACPI_METHOD_ARGUMENT_V1*>(
+            reinterpret_cast<UINT64>(arg) + sizeof(USHORT) * 2 + arg->DataLength);
+    }
+
+    // Evaluate and dump output
+    return DumpAcpi(params);
 }
 
 /*

@@ -1,6 +1,18 @@
+use std::mem;
+
 // This module maps the data returned from call into the C-Library to RUST structures
 unsafe extern "C" {
-    fn EvaluateAcpi(eval: *const i8, eval_len: usize, buffer: *mut u8, buf_len: &mut usize) -> i32;
+    fn EvaluateAcpi(input: *const i8, input_len: usize, buffer: *mut u8, buf_len: &mut usize) -> i32;
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub struct AcpiEvalInputBufferComplexV1Ex {
+    pub signature: u32,
+    pub methodname: [u8; 256],
+    pub size: u32,
+    pub argumentcount: u32,
+    pub arguments: AcpiMethodArgumentV1,
 }
 
 #[repr(C)]
@@ -27,9 +39,29 @@ pub enum AcpiParseError {
     InvalidFormat,
 }
 
+pub const ACPI_EVAL_INPUT_BUFFER_COMPLEX_SIGNATURE_EX: u32 = u32::from_le_bytes(*b"AeiF");
+
 impl std::fmt::Display for AcpiParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+// Convert from &str into AcpiEvalInputBufferComplexV1Ex
+impl TryFrom<&str> for AcpiEvalInputBufferComplexV1Ex {
+    type Error = AcpiParseError;
+    fn try_from(method: &str) -> Result<Self, AcpiParseError> {
+        let mut buffer = [0u8; 256];
+        let bytes = method.as_bytes();
+        let len = bytes.len().min(256);
+        buffer[..len].copy_from_slice(&bytes[..len]);
+        Ok(AcpiEvalInputBufferComplexV1Ex {
+            signature: ACPI_EVAL_INPUT_BUFFER_COMPLEX_SIGNATURE_EX,
+            methodname: buffer,
+            size: 0,          // Need to update with actual size based on parameters
+            argumentcount: 0, // Update to allow multiple input arguments
+            arguments: AcpiMethodArgumentV1::default(),
+        })
     }
 }
 
@@ -85,18 +117,22 @@ impl TryFrom<Vec<u8>> for AcpiEvalOutputBufferV1 {
 
 pub struct Acpi {}
 
-// Implement conversion from Vec[u8] to AcpiEvalOutputBufferV1
-
 impl Acpi {
     pub fn evaluate(eval: &str) -> Result<AcpiEvalOutputBufferV1, AcpiParseError> {
-        let eval_ptr = eval.as_ptr(); // Transfers ownership
-        let eval_len = eval.bytes().len();
+        let input = AcpiEvalInputBufferComplexV1Ex::try_from(eval);
 
         // Output buffer
         let mut buf_len = 1024;
         let mut buffer = vec![0u8; buf_len];
 
-        let _res = unsafe { EvaluateAcpi(eval_ptr as *const i8, eval_len, buffer.as_mut_ptr(), &mut buf_len) };
+        let _res = unsafe {
+            EvaluateAcpi(
+                &input as *const _ as *const i8,
+                mem::size_of::<AcpiEvalInputBufferComplexV1Ex>(),
+                buffer.as_mut_ptr(),
+                &mut buf_len,
+            )
+        };
 
         AcpiEvalOutputBufferV1::try_from(buffer)
     }

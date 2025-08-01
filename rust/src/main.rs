@@ -27,8 +27,7 @@ use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
 fn main() -> Result<()> {
     color_eyre::install()?;
     let terminal = ratatui::init();
-    let app_result = App::default().run(terminal);
-    app_result
+    App::default().run(terminal)
 }
 
 /// The main application which holds the state and logic of the application.

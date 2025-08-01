@@ -32,8 +32,8 @@ ECLIB_API int GetKMDFDriverHandle(
 );
 
 ECLIB_API int EvaluateAcpi(
-    _In_ const char* eval,
-    _In_ size_t eval_len,
+    _In_ void* acpi_input,
+    _In_ size_t input_len,
     _Out_ BYTE* buffer,
     _In_ size_t* buf_len
 );
