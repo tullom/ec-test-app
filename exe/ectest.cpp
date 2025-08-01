@@ -37,6 +37,7 @@ _Analysis_mode_(_Analysis_code_type_user_code_)
 #include <Acpiioct.h>
 #include <devioctl.h>
 #include <Objbase.h>
+#include <memory>
 #include "..\inc\ectest.h"
 
 extern "C" {
@@ -183,8 +184,6 @@ int ParseCmdline(
     _In_ char ** argv
     )
 {
-    BYTE *buffer = NULL;
-    int status = ERROR_SUCCESS;
 
     // Must always have at least 3 parameters
     if( argc < CMD_MIN_ARG_COUNT ) {
@@ -196,28 +195,23 @@ int ParseCmdline(
         printf("            Integer - 0x123ABC 1234 -1234\n");
         printf("             String - \'TestString\'\n");
 
-        status = ERROR_INVALID_PARAMETER;
-        goto cleanup;
+        return ERROR_INVALID_PARAMETER;
     } else if(argc > CMD_MIN_ARG_COUNT + 7) {
         // ACPI function cannot accept more than 7 arguments
         printf("Exceeded 7 ACPI arguments!\n");
-        status = ERROR_INVALID_PARAMETER;
-        goto cleanup;
+        return ERROR_INVALID_PARAMETER;
     }
 
     // Create new buffer based on number of parameters and max string size
     size_t buffer_max = (argc-CMD_MIN_ARG_COUNT)*MAX_STRING_LEN + sizeof(ACPI_EVAL_INPUT_BUFFER_COMPLEX_V1_EX);
-    buffer = new BYTE[buffer_max];
-    if(buffer == NULL) {
-        status = ERROR_OPERATION_ABORTED;
-        goto cleanup;
-    }
+    std::unique_ptr<BYTE[]> buffer(new BYTE[buffer_max]); // Throws exception if it fails, auto frees
 
-    ACPI_EVAL_INPUT_BUFFER_COMPLEX_V1_EX *params = (ACPI_EVAL_INPUT_BUFFER_COMPLEX_V1_EX *)buffer;
+    auto* params = reinterpret_cast<ACPI_EVAL_INPUT_BUFFER_COMPLEX_V1_EX*>(buffer.get());
     params->Signature = ACPI_EVAL_INPUT_BUFFER_COMPLEX_SIGNATURE_EX;
-    strncpy_s(params->MethodName,sizeof(params->MethodName),argv[2],strlen(argv[2]) );
+    strncpy_s(params->MethodName, sizeof(params->MethodName), argv[2], strlen(argv[2]));
     params->ArgumentCount = argc - 3;
     params->Size = 0;
+
 
     printf("Signature: 0x%x\n", params->Signature);
 
@@ -230,19 +224,18 @@ int ParseCmdline(
 
         // Make sure this parameter will not overflow our buffer allocation
         size_t str_len = strlen(carg);
-        if( ((UINT64)arg->Data - (UINT64)buffer) + str_len > buffer_max ) {
+        if( ((UINT64)arg->Data - (UINT64)buffer.get()) + str_len > buffer_max ) {
             printf("Parameters too long\n");
-            status = ERROR_INVALID_PARAMETER;
-            goto cleanup;
+            return ERROR_INVALID_PARAMETER;
         }
         
         // GUID must be in this exact format {25cb5207-ac36-427d-aaef-3aa78877d27e}
         if(carg[0] == '{') {
-            status = CharToGUID(arg->Data, 16, carg, str_len+1); // Include terminating \0 in length
+            int status = CharToGUID(arg->Data, 16, carg, str_len+1); // Include terminating \0 in length
             if(status != ERROR_SUCCESS) {
                 printf("Failed to convert GUID\n");
                 printf("Please provide GUID in this format: {25cb5207-ac36-427d-aaef-3aa78877d27e}\n");
-                goto cleanup;
+                return status;
             }
             // Print out the GUID
             printf("Converted GUID: {");
@@ -257,18 +250,17 @@ int ParseCmdline(
         } else if(carg[0] == '\'') {
             // Pull off the start and ending ' '
             arg->Type = ACPI_METHOD_ARGUMENT_STRING;
-            arg->DataLength = (USHORT)(strlen(carg)-1);
-            strncpy_s((char *)arg->Data, MAX_STRING_LEN, &carg[1], arg->DataLength-1);
+            arg->DataLength = static_cast<USHORT>(strlen(carg)-1);
+            strncpy_s(reinterpret_cast<char*>(arg->Data), MAX_STRING_LEN, &carg[1], arg->DataLength-1);
             printf("Converting to String: %s\n", arg->Data);
         } else {
-            char *endptr = NULL;
+            char *endptr = nullptr;
             arg->Type = ACPI_METHOD_ARGUMENT_INTEGER;
             arg->DataLength = 4; // Length of DWORD
             arg->Argument = strtol(carg, &endptr, 0); // Try to guess the base
             if(endptr == carg) {
                 printf("Failed to convert number\n");
-                status = ERROR_INVALID_PARAMETER;
-                goto cleanup;
+                return ERROR_INVALID_PARAMETER;
             }
             printf("Converted to Number: 0x%x\n",arg->Argument);
         }
@@ -276,18 +268,12 @@ int ParseCmdline(
         params->Size += arg->DataLength;
 
         // Increment to next value
-        arg = (ACPI_METHOD_ARGUMENT_V1 *)((UINT64)arg + sizeof(USHORT)*2 + arg->DataLength);
+        arg = reinterpret_cast<ACPI_METHOD_ARGUMENT_V1*>(
+            reinterpret_cast<UINT64>(arg) + sizeof(USHORT) * 2 + arg->DataLength);
     }
 
     // Evaluate and dump output
-    status = DumpAcpi(params);
-
-cleanup:
-    // Clean up buffer if it was allocated
-    if(buffer) {
-        delete [] buffer;
-    }
-    return status;
+    return DumpAcpi(params);
 }
 
 /*
