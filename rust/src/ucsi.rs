@@ -7,7 +7,7 @@ use ratatui::{
     widgets::{Block, Borders, Padding, Paragraph, Widget},
 };
 
-use crate::Module;
+use crate::app::Module;
 
 const LABEL_COLOR: Color = tailwind::SLATE.c200;
 
