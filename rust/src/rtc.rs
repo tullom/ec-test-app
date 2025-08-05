@@ -15,6 +15,10 @@ const LABEL_COLOR: Color = tailwind::SLATE.c200;
 pub struct Rtc {}
 
 impl Module for Rtc {
+    fn title(&self) -> &'static str {
+        "RTC Information"
+    }
+
     fn update(&mut self) {}
 
     fn handle_event(&mut self, _evt: &Event) {}

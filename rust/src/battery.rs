@@ -55,6 +55,10 @@ pub struct BixData {
 pub struct Battery {}
 
 impl Module for Battery {
+    fn title(&self) -> &'static str {
+        "Battery Information"
+    }
+
     fn update(&mut self) {}
 
     fn handle_event(&mut self, _evt: &Event) {}

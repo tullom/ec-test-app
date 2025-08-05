@@ -62,6 +62,9 @@ impl Default for App {
 
 /// Internal trait to be implemented by modules (or Tabs).
 pub(crate) trait Module {
+    /// The module's title.
+    fn title(&self) -> &'static str;
+
     /// Update the module.
     fn update(&mut self);
 
@@ -220,56 +223,12 @@ impl App {
     }
 
     fn render_selected_tab(&self, area: Rect, buf: &mut Buffer) {
-        match self.selected_tab {
-            SelectedTab::TabBattery => self.render_battery(area, buf),
-            SelectedTab::TabThermal => self.render_thermal(area, buf),
-            SelectedTab::TabRTC => self.render_rtc(area, buf),
-            SelectedTab::TabUCSI => self.render_ucsi(area, buf),
-        }
-    }
-
-    fn render_battery(&self, area: Rect, buf: &mut Buffer) {
-        let block = self.selected_tab.block().title("Battery Information");
+        let module = self.modules.get(&self.selected_tab).expect("Tab must exist");
+        let block = self.selected_tab.block().title(module.title());
         let inner = block.inner(area);
 
         block.render(area, buf);
-        self.modules
-            .get(&self.selected_tab)
-            .expect("Battery must exist")
-            .render(inner, buf);
-    }
-
-    fn render_thermal(&self, area: Rect, buf: &mut Buffer) {
-        let block = self.selected_tab.block().title("Thermal Information");
-        let inner = block.inner(area);
-
-        block.render(area, buf);
-        self.modules
-            .get(&SelectedTab::TabThermal)
-            .expect("Thermal must exist")
-            .render(inner, buf);
-    }
-
-    fn render_rtc(&self, area: Rect, buf: &mut Buffer) {
-        let block = self.selected_tab.block().title("RTC Information");
-        let inner = block.inner(area);
-
-        block.render(area, buf);
-        self.modules
-            .get(&self.selected_tab)
-            .expect("RTC must exist")
-            .render(inner, buf);
-    }
-
-    fn render_ucsi(&self, area: Rect, buf: &mut Buffer) {
-        let block = self.selected_tab.block().title("UCSI Information");
-        let inner = block.inner(area);
-
-        block.render(area, buf);
-        self.modules
-            .get(&self.selected_tab)
-            .expect("UCSI must exist")
-            .render(inner, buf);
+        module.render(inner, buf);
     }
 }
 

@@ -15,6 +15,10 @@ const LABEL_COLOR: Color = tailwind::SLATE.c200;
 pub struct Ucsi {}
 
 impl Module for Ucsi {
+    fn title(&self) -> &'static str {
+        "UCSI Information"
+    }
+
     fn update(&mut self) {}
 
     fn handle_event(&mut self, _evt: &Event) {}

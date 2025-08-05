@@ -309,6 +309,10 @@ pub struct Thermal {
 }
 
 impl Module for Thermal {
+    fn title(&self) -> &'static str {
+        "Thermal Information"
+    }
+
     fn update(&mut self) {
         self.sensor.update();
         self.fan.update();
