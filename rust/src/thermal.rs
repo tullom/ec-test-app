@@ -1,3 +1,4 @@
+use crate::Module;
 #[cfg(not(feature = "mock"))]
 use crate::acpi::{Acpi, AcpiMethodArgument};
 
@@ -307,14 +308,24 @@ pub struct Thermal {
     t: usize,
 }
 
-impl Thermal {
-    pub fn update(&mut self) {
+impl Module for Thermal {
+    fn title(&self) -> &'static str {
+        "Thermal Information"
+    }
+
+    fn update(&mut self) {
         self.sensor.update();
         self.fan.update();
         self.t += 1;
     }
 
-    pub fn handle_event(&mut self, evt: &Event) {
+    fn render(&self, area: Rect, buf: &mut Buffer) {
+        let [sensor_area, fan_area] = area_split(area, Direction::Horizontal, 50, 50);
+        self.render_sensor(sensor_area, buf);
+        self.render_fan(fan_area, buf);
+    }
+
+    fn handle_event(&mut self, evt: &Event) {
         if let Event::Key(key) = evt
             && key.code == KeyCode::Enter
             && key.kind == KeyEventKind::Press
@@ -326,11 +337,11 @@ impl Thermal {
             let _ = self.rpm_input.handle_event(evt);
         }
     }
+}
 
-    pub fn render(&self, area: Rect, buf: &mut Buffer) {
-        let [sensor_area, fan_area] = area_split(area, Direction::Horizontal, 50, 50);
-        self.render_sensor(sensor_area, buf);
-        self.render_fan(fan_area, buf);
+impl Thermal {
+    pub fn new() -> Self {
+        Default::default()
     }
 
     fn render_sensor(&self, area: Rect, buf: &mut Buffer) {
