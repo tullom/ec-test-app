@@ -138,7 +138,7 @@ impl Battery {
         let result = Acpi::evaluate("\\_SB.ECT0.TBST", None);
         match result {
             Ok(value) => value.into(),
-            Err(e) => panic!("Failed {}", e),
+            Err(e) => panic!("Failed {e}"),
         }
     }
 
