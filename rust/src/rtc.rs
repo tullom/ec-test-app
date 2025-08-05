@@ -1,3 +1,4 @@
+use crossterm::event::Event;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -6,15 +7,27 @@ use ratatui::{
     widgets::{Block, Borders, Padding, Paragraph, Widget},
 };
 
+use crate::Module;
+
 const LABEL_COLOR: Color = tailwind::SLATE.c200;
 
 #[derive(Default)]
 pub struct Rtc {}
 
-impl Rtc {
-    pub fn render(area: Rect, buf: &mut Buffer) {
+impl Module for Rtc {
+    fn update(&mut self) {}
+
+    fn handle_event(&mut self, _evt: &Event) {}
+
+    fn render(&self, area: Rect, buf: &mut Buffer) {
         let status_title = title_block("RTC Properties");
         Paragraph::default().block(status_title).render(area, buf);
+    }
+}
+
+impl Rtc {
+    pub fn new() -> Self {
+        Self {}
     }
 }
 

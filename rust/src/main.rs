@@ -25,7 +25,10 @@ use ratatui::{
 
 use strum::{Display, EnumIter, FromRepr, IntoEnumIterator};
 
-use std::time::{Duration, Instant};
+use std::{
+    collections::BTreeMap,
+    time::{Duration, Instant},
+};
 
 fn main() -> Result<()> {
     color_eyre::install()?;
@@ -34,12 +37,39 @@ fn main() -> Result<()> {
 }
 
 /// The main application which holds the state and logic of the application.
-#[derive(Default)]
 pub struct App {
     state: AppState,
     selected_tab: SelectedTab,
-    thermal: Thermal,
-    // TODO: Add fields for other services as they are implemented
+    modules: BTreeMap<SelectedTab, Box<dyn Module>>,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        let mut modules: BTreeMap<SelectedTab, Box<dyn Module>> = BTreeMap::new();
+
+        modules.insert(SelectedTab::TabThermal, Box::new(Thermal::new()));
+        modules.insert(SelectedTab::TabRTC, Box::new(Rtc::new()));
+        modules.insert(SelectedTab::TabUCSI, Box::new(Ucsi::new()));
+        modules.insert(SelectedTab::TabBattery, Box::new(Battery::new()));
+
+        Self {
+            state: Default::default(),
+            selected_tab: Default::default(),
+            modules,
+        }
+    }
+}
+
+/// Internal trait to be implemented by modules (or Tabs).
+pub(crate) trait Module {
+    /// Update the module.
+    fn update(&mut self);
+
+    /// Handle input event.
+    fn handle_event(&mut self, evt: &Event);
+
+    /// Render the module.
+    fn render(&self, area: Rect, buf: &mut Buffer);
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq)]
@@ -49,7 +79,7 @@ enum AppState {
     Quitting,
 }
 
-#[derive(Default, Clone, Copy, Display, FromRepr, EnumIter)]
+#[derive(Default, Clone, Copy, Display, FromRepr, EnumIter, PartialEq, Eq, PartialOrd, Ord, Hash)]
 enum SelectedTab {
     #[default]
     #[strum(to_string = "Battery")]
@@ -113,18 +143,16 @@ impl App {
     }
 
     fn handle_tab_event(&mut self, evt: &Event) {
-        // TODO: Handle input for other tabs as they are implemented
-        match self.selected_tab {
-            SelectedTab::TabThermal => self.thermal.handle_event(evt),
-            SelectedTab::TabBattery => {}
-            SelectedTab::TabRTC => {}
-            SelectedTab::TabUCSI => {}
-        }
+        self.modules
+            .get_mut(&self.selected_tab)
+            .expect("Tab must exist")
+            .handle_event(evt);
     }
 
     fn update_tabs(&mut self) {
-        // TODO: Update other tabs as they are implemented
-        self.thermal.update();
+        for module in self.modules.values_mut() {
+            module.update();
+        }
     }
 
     pub fn next_tab(&mut self) {
@@ -205,7 +233,10 @@ impl App {
         let inner = block.inner(area);
 
         block.render(area, buf);
-        Battery::render(inner, buf);
+        self.modules
+            .get(&self.selected_tab)
+            .expect("Battery must exist")
+            .render(inner, buf);
     }
 
     fn render_thermal(&self, area: Rect, buf: &mut Buffer) {
@@ -213,7 +244,10 @@ impl App {
         let inner = block.inner(area);
 
         block.render(area, buf);
-        self.thermal.render(inner, buf);
+        self.modules
+            .get(&SelectedTab::TabThermal)
+            .expect("Thermal must exist")
+            .render(inner, buf);
     }
 
     fn render_rtc(&self, area: Rect, buf: &mut Buffer) {
@@ -221,7 +255,10 @@ impl App {
         let inner = block.inner(area);
 
         block.render(area, buf);
-        Rtc::render(inner, buf);
+        self.modules
+            .get(&self.selected_tab)
+            .expect("RTC must exist")
+            .render(inner, buf);
     }
 
     fn render_ucsi(&self, area: Rect, buf: &mut Buffer) {
@@ -229,7 +266,10 @@ impl App {
         let inner = block.inner(area);
 
         block.render(area, buf);
-        Ucsi::render(inner, buf);
+        self.modules
+            .get(&self.selected_tab)
+            .expect("UCSI must exist")
+            .render(inner, buf);
     }
 }
 

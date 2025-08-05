@@ -1,6 +1,8 @@
+use crate::Module;
 #[cfg(not(feature = "mock"))]
 use crate::acpi::{Acpi, AcpiEvalOutputBufferV1};
 
+use crossterm::event::Event;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -51,6 +53,40 @@ pub struct BixData {
 
 #[derive(Default)]
 pub struct Battery {}
+
+impl Module for Battery {
+    fn update(&mut self) {}
+
+    fn handle_event(&mut self, _evt: &Event) {}
+
+    fn render(&self, area: Rect, buf: &mut Buffer) {
+        let bat_status = Self::get_bst();
+        //let bat_info = Self::get_bix();
+        //let bat_percent = (bat_status.capacity / bat_info.design_capacity) * 100;
+        let bat_percent = bat_status.capacity / 82; // Use fake values till BIX is available
+
+        let status_title = Self::title_block("Battery Status");
+        Paragraph::new(Self::create_status(area, bat_status))
+            .block(status_title)
+            .render(area, buf);
+
+        /*
+        let info_title = Self::title_block("Battery Info");
+        let bix_area = Rect::new(area.x, area.y + 6, area.width / 2, 4);
+        Paragraph::new(Self::create_info(bix_area,bat_info))
+            .block(info_title)
+            .render(bix_area, buf);
+        */
+
+        let gauge_area = Rect::new(area.x, area.y + 20, area.width / 2, 4);
+        let title = Self::title_block("Battery Percentage:");
+        Gauge::default()
+            .block(title)
+            .gauge_style(BATGAUGE_COLOR)
+            .percent(bat_percent.try_into().unwrap())
+            .render(gauge_area, buf);
+    }
+}
 
 // Convert ACPI result to BstData
 #[cfg(not(feature = "mock"))]
@@ -105,32 +141,8 @@ impl From<AcpiEvalOutputBufferV1> for BixData {
 */
 
 impl Battery {
-    pub fn render(area: Rect, buf: &mut Buffer) {
-        let bat_status = Self::get_bst();
-        //let bat_info = Self::get_bix();
-        //let bat_percent = (bat_status.capacity / bat_info.design_capacity) * 100;
-        let bat_percent = bat_status.capacity / 82; // Use fake values till BIX is available
-
-        let status_title = Self::title_block("Battery Status");
-        Paragraph::new(Self::create_status(area, bat_status))
-            .block(status_title)
-            .render(area, buf);
-
-        /*
-        let info_title = Self::title_block("Battery Info");
-        let bix_area = Rect::new(area.x, area.y + 6, area.width / 2, 4);
-        Paragraph::new(Self::create_info(bix_area,bat_info))
-            .block(info_title)
-            .render(bix_area, buf);
-        */
-
-        let gauge_area = Rect::new(area.x, area.y + 20, area.width / 2, 4);
-        let title = Self::title_block("Battery Percentage:");
-        Gauge::default()
-            .block(title)
-            .gauge_style(BATGAUGE_COLOR)
-            .percent(bat_percent.try_into().unwrap())
-            .render(gauge_area, buf);
+    pub fn new() -> Self {
+        Self {}
     }
 
     #[cfg(not(feature = "mock"))]
