@@ -96,7 +96,7 @@ fn acpi_set_rpm(rpm: u32) {
 
 #[cfg(not(feature = "mock"))]
 fn acpi_get_tmp() -> f32 {
-    let res = Acpi::evaluate("\\_SB.ECT0.RTMP");
+    let res = Acpi::evaluate("\\_SB.ECT0.RTMP", None);
     match res {
         Ok(acpi) => {
             if acpi.count != 1 {
@@ -110,7 +110,7 @@ fn acpi_get_tmp() -> f32 {
 
 #[cfg(not(feature = "mock"))]
 fn acpi_get_rpm() -> u32 {
-    let res = Acpi::evaluate("\\_SB.ECT0.RFAN");
+    let res = Acpi::evaluate("\\_SB.ECT0.RFAN", None);
     match res {
         Ok(acpi) => {
             if acpi.count != 2 {
@@ -125,7 +125,7 @@ fn acpi_get_rpm() -> u32 {
 #[cfg(not(feature = "mock"))]
 fn acpi_set_rpm(_rpm: u32) {
     // This will always set RPM to 1500 until arbitrary SET_VAR supported
-    let res = Acpi::evaluate("\\_SB.ECT0.WFAN");
+    let res = Acpi::evaluate("\\_SB.ECT0.WFAN", None);
     match res {
         Ok(acpi) => {
             if acpi.count != 1 {

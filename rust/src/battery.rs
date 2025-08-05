@@ -135,7 +135,7 @@ impl Battery {
 
     #[cfg(not(feature = "mock"))]
     fn get_bst() -> BstData {
-        let result = Acpi::evaluate("\\_SB.ECT0.TBST");
+        let result = Acpi::evaluate("\\_SB.ECT0.TBST", None);
         match result {
             Ok(value) => value.into(),
             Err(e) => panic!("Failed {}", e),
