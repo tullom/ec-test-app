@@ -1,12 +1,4 @@
-#[cfg(not(feature = "mock"))]
-mod acpi;
-mod app;
-mod battery;
-mod rtc;
-mod thermal;
-mod ucsi;
-
-use crate::app::App;
+use ec_demo::app::App;
 
 use color_eyre::Result;
 use ratatui;

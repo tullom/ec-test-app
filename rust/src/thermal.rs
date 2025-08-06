@@ -1,6 +1,5 @@
-#[cfg(not(feature = "mock"))]
-use crate::acpi::{Acpi, AcpiMethodArgument};
 use crate::app::Module;
+use crate::{Source, Threshold};
 
 use ratatui::{
     buffer::Buffer,
@@ -14,25 +13,8 @@ use ratatui::{
 use std::collections::VecDeque;
 use tui_input::{Input, backend::crossterm::EventHandler};
 
-#[cfg(not(feature = "mock"))]
-mod guid {
-    pub const _SENSOR_CRT_TEMP: uuid::Uuid = uuid::uuid!("218246e7-baf6-45f1-aa13-07e4845256b8");
-    pub const _SENSOR_PROCHOT_TEMP: uuid::Uuid = uuid::uuid!("22dc52d2-fd0b-47ab-95b8-26552f9831a5");
-    pub const FAN_ON_TEMP: uuid::Uuid = uuid::uuid!("ba17b567-c368-48d5-bc6f-a312a41583c1");
-    pub const FAN_RAMP_TEMP: uuid::Uuid = uuid::uuid!("3a62688c-d95b-4d2d-bacc-90d7a5816bcd");
-    pub const FAN_MAX_TEMP: uuid::Uuid = uuid::uuid!("dcb758b1-f0fd-4ec7-b2c0-ef1e2a547b76");
-    pub const FAN_MIN_RPM: uuid::Uuid = uuid::uuid!("db261c77-934b-45e2-9742-256c62badb7a");
-    pub const FAN_MAX_RPM: uuid::Uuid = uuid::uuid!("5cf839df-8be7-42b9-9ac5-3403ca2c8a6a");
-    pub const FAN_CURRENT_RPM: uuid::Uuid = uuid::uuid!("adf95492-0776-4ffc-84f3-b6c8b5269683");
-}
-
 const LABEL_COLOR: Color = tailwind::SLATE.c200;
 const MAX_SAMPLES: usize = 60;
-
-// Convert deciKelvin to degrees Celsius
-const fn dk_to_c(dk: u32) -> f32 {
-    (dk as f32 / 10.0) - 273.15
-}
 
 // Split an area in a direction with given percentages
 fn area_split(area: Rect, direction: Direction, first: u16, second: u16) -> [Rect; 2] {
@@ -55,24 +37,22 @@ fn title_block(title: &str, padding: u16) -> Block<'_> {
         .fg(LABEL_COLOR)
 }
 
+#[cfg(not(feature = "mock"))]
+fn data_source() -> Box<dyn Source> {
+    Box::new(crate::acpi::Acpi::default())
+}
+
 #[cfg(feature = "mock")]
-fn acpi_get_sensor_tmp() -> f32 {
-    use std::sync::{Mutex, OnceLock};
+fn data_source() -> Box<dyn Source> {
+    Box::new(crate::mock::Mock::default())
+}
 
-    // Generate sawtooth wave
-    static SAMPLE: OnceLock<Mutex<(i64, i64)>> = OnceLock::new();
-    let mut sample = SAMPLE.get_or_init(|| Mutex::new((2732, 1))).lock().unwrap();
-
-    sample.0 += 10 * sample.1;
-    if sample.0 >= 3232 || sample.0 <= 2732 {
-        sample.1 *= -1;
-    }
-
-    dk_to_c(sample.0 as u32).round()
+fn get_sensor_tmp() -> f64 {
+    data_source().get_temperature().expect("Unable to get temperature")
 }
 
 // Always return mock data for thresholds until sensor GET/SET VAR and GET/SET THRS supported
-fn acpi_get_sensor_thresholds() -> SensorThresholds {
+fn get_sensor_thresholds() -> SensorThresholds {
     SensorThresholds {
         _warn_low: 13.0,
         warn_high: 35.0,
@@ -81,129 +61,32 @@ fn acpi_get_sensor_thresholds() -> SensorThresholds {
     }
 }
 
-#[cfg(feature = "mock")]
-static SET_RPM: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(-1);
-
-#[cfg(feature = "mock")]
-fn acpi_get_fan_rpm() -> u32 {
-    use std::f32::consts::PI;
-    use std::sync::{Mutex, OnceLock};
-
-    // For mock, if user sets RPM, we just always return what was last set instead of sin wave
-    let set_rpm = SET_RPM.load(std::sync::atomic::Ordering::Relaxed);
-    if set_rpm >= 0 {
-        return set_rpm as u32;
-    }
-
-    // Generate sin wave
-    static SAMPLE: OnceLock<Mutex<f32>> = OnceLock::new();
-    let mut sample = SAMPLE.get_or_init(|| Mutex::new(0.0)).lock().unwrap();
-
-    let freq = 0.1;
-    let amplitude = 3000.0;
-    let base = 3000.0;
-    let rpm = (sample.sin() * amplitude) + base;
-
-    *sample += freq;
-    if *sample > 2.0 * PI {
-        *sample -= 2.0 * PI;
-    }
-
-    rpm.round() as u32
+fn get_fan_rpm() -> f64 {
+    data_source().get_rpm().expect("Unable to get fan RPM")
 }
 
-#[cfg(feature = "mock")]
-fn acpi_set_fan_rpm(rpm: u32) {
-    SET_RPM.store(rpm as i64, std::sync::atomic::Ordering::Relaxed);
+fn set_fan_rpm(rpm: f64) {
+    data_source().set_rpm(rpm).expect("Unable to set fan RPM")
 }
 
-#[cfg(feature = "mock")]
-fn acpi_get_fan_bounds() -> FanRpmBounds {
-    FanRpmBounds { min: 0, max: 6000 }
-}
+fn get_fan_bounds() -> FanRpmBounds {
+    let min = data_source().get_min_rpm().expect("Unable to get min RPM");
+    let max = data_source().get_max_rpm().expect("Unable to get min RPM");
 
-#[cfg(feature = "mock")]
-fn acpi_get_fan_levels() -> FanStateLevels {
-    FanStateLevels {
-        on: 28.0,
-        ramping: 40.0,
-        max: 44.0,
-    }
-}
-
-#[cfg(not(feature = "mock"))]
-fn acpi_get_var(guid: uuid::Uuid) -> u32 {
-    let args = [AcpiMethodArgument::Int(1), AcpiMethodArgument::Guid(guid.to_bytes_le())];
-    let res = Acpi::evaluate("\\_SB.ECT0.TGVR", Some(&args));
-    match res {
-        Ok(output) => {
-            if output.count != 2 {
-                panic!("GET_VAR({guid}) unrecognized output");
-            } else if output.arguments[0].data_32 != 0 {
-                panic!("GET_VAR({guid}) unknown failure");
-            }
-            output.arguments[1].data_32
-        }
-        Err(e) => panic!("GET_VAR({guid}) parse failure: {e:?}"),
-    }
-}
-
-#[cfg(not(feature = "mock"))]
-fn acpi_set_var(guid: uuid::Uuid, value: u32) {
-    let args = [
-        AcpiMethodArgument::Int(1),
-        AcpiMethodArgument::Guid(guid.to_bytes_le()),
-        AcpiMethodArgument::Int(value),
-    ];
-    let res = Acpi::evaluate("\\_SB.ECT0.TSVR", Some(&args));
-    match res {
-        Ok(output) => {
-            if output.count != 1 {
-                panic!("SET_VAR({guid}, {value}) unrecognized output");
-            } else if output.arguments[0].data_32 != 0 {
-                panic!("SET_VAR({guid}, {value}) unknown failure");
-            }
-        }
-        Err(e) => panic!("SET_VAR({guid}, {value}) parse failure: {e:?}"),
-    }
-}
-
-#[cfg(not(feature = "mock"))]
-fn acpi_get_sensor_tmp() -> f32 {
-    let res = Acpi::evaluate("\\_SB.ECT0.RTMP", None);
-    match res {
-        Ok(output) => {
-            if output.count != 1 {
-                panic!("GET_TMP unrecognized output");
-            }
-            dk_to_c(output.arguments[0].data_32)
-        }
-        Err(e) => panic!("GET_TMP parse failure: {e:?}"),
-    }
-}
-
-#[cfg(not(feature = "mock"))]
-fn acpi_get_fan_rpm() -> u32 {
-    acpi_get_var(guid::FAN_CURRENT_RPM)
-}
-
-#[cfg(not(feature = "mock"))]
-fn acpi_set_fan_rpm(rpm: u32) {
-    acpi_set_var(guid::FAN_CURRENT_RPM, rpm);
-}
-
-#[cfg(not(feature = "mock"))]
-fn acpi_get_fan_bounds() -> FanRpmBounds {
-    let min = acpi_get_var(guid::FAN_MIN_RPM);
-    let max = acpi_get_var(guid::FAN_MAX_RPM);
     FanRpmBounds { min, max }
 }
 
-#[cfg(not(feature = "mock"))]
-fn acpi_get_fan_levels() -> FanStateLevels {
-    let on = dk_to_c(acpi_get_var(guid::FAN_ON_TEMP));
-    let ramping = dk_to_c(acpi_get_var(guid::FAN_RAMP_TEMP));
-    let max = dk_to_c(acpi_get_var(guid::FAN_MAX_TEMP));
+fn get_fan_levels() -> FanStateLevels {
+    let on = data_source()
+        .get_threshold(Threshold::On)
+        .expect("Unable to get ON threshold");
+    let ramping = data_source()
+        .get_threshold(Threshold::Ramping)
+        .expect("Unable to get RAMPING threshold");
+    let max = data_source()
+        .get_threshold(Threshold::Max)
+        .expect("Unable to get MAX threshold");
+
     FanStateLevels { on, ramping, max }
 }
 
@@ -249,43 +132,43 @@ impl<T: Into<f64> + Copy, const N: usize> SampleBuf<T, N> {
 
 #[derive(Default)]
 struct SensorThresholds {
-    _warn_low: f32,
-    warn_high: f32,
-    prochot: f32,
-    critical: f32,
+    _warn_low: f64,
+    warn_high: f64,
+    prochot: f64,
+    critical: f64,
 }
 
 #[derive(Default)]
 struct SensorState {
-    skin_temp: f32,
+    skin_temp: f64,
     thresholds: SensorThresholds,
-    samples: SampleBuf<f32, MAX_SAMPLES>,
+    samples: SampleBuf<f64, MAX_SAMPLES>,
 }
 
 impl SensorState {
     fn update(&mut self) {
-        self.skin_temp = acpi_get_sensor_tmp();
-        self.thresholds = acpi_get_sensor_thresholds();
+        self.skin_temp = get_sensor_tmp();
+        self.thresholds = get_sensor_thresholds();
         self.samples.insert(self.skin_temp);
     }
 }
 
 #[derive(Default)]
 struct FanRpmBounds {
-    min: u32,
-    max: u32,
+    min: f64,
+    max: f64,
 }
 
 #[derive(Default)]
 struct FanStateLevels {
-    on: f32,
-    ramping: f32,
-    max: f32,
+    on: f64,
+    ramping: f64,
+    max: f64,
 }
 
 #[derive(Default)]
 struct FanState {
-    rpm: u32,
+    rpm: f64,
     rpm_bounds: FanRpmBounds,
     state_levels: FanStateLevels,
     samples: SampleBuf<u32, MAX_SAMPLES>,
@@ -293,10 +176,10 @@ struct FanState {
 
 impl FanState {
     fn update(&mut self) {
-        self.rpm = acpi_get_fan_rpm();
-        self.rpm_bounds = acpi_get_fan_bounds();
-        self.state_levels = acpi_get_fan_levels();
-        self.samples.insert(self.rpm);
+        self.rpm = get_fan_rpm();
+        self.rpm_bounds = get_fan_bounds();
+        self.state_levels = get_fan_levels();
+        self.samples.insert(self.rpm as u32);
     }
 }
 
@@ -331,7 +214,7 @@ impl Module for Thermal {
             && key.kind == KeyEventKind::Press
         {
             if let Ok(rpm) = self.rpm_input.value_and_reset().parse() {
-                acpi_set_fan_rpm(rpm);
+                set_fan_rpm(rpm);
             }
         } else {
             let _ = self.rpm_input.handle_event(evt);
@@ -433,7 +316,7 @@ impl Thermal {
     fn render_fan_chart(&self, area: Rect, buf: &mut Buffer) {
         let y_labels = [
             "0.0".bold(),
-            Span::styled((self.fan.rpm_bounds.max / 2).to_string(), Style::default().bold()),
+            Span::styled((self.fan.rpm_bounds.max / 2.0).to_string(), Style::default().bold()),
             Span::styled(self.fan.rpm_bounds.max.to_string(), Style::default().bold()),
         ];
         let graph = Graph {
@@ -453,7 +336,9 @@ impl Thermal {
     fn create_fan_stats(&self) -> Vec<Line<'static>> {
         vec![Line::raw(format!(
             "RPM: {} ({}, {})",
-            self.fan.rpm, self.fan.rpm_bounds.min, self.fan.rpm_bounds.max
+            self.fan.rpm.round(),
+            self.fan.rpm_bounds.min,
+            self.fan.rpm_bounds.max
         ))]
     }
 
