@@ -341,7 +341,9 @@ impl Module for Thermal {
 
 impl Thermal {
     pub fn new() -> Self {
-        Default::default()
+        let mut inst = Self::default();
+        inst.update();
+        inst
     }
 
     fn render_sensor(&self, area: Rect, buf: &mut Buffer) {
