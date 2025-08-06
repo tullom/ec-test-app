@@ -1,6 +1,6 @@
-use crate::Module;
 #[cfg(not(feature = "mock"))]
 use crate::acpi::{Acpi, AcpiEvalOutputBufferV1};
+use crate::app::Module;
 
 use crossterm::event::Event;
 use ratatui::{
@@ -11,7 +11,10 @@ use ratatui::{
     widgets::{Block, Borders, Gauge, Padding, Paragraph, Widget},
 };
 
-const BATGAUGE_COLOR: Color = tailwind::ORANGE.c800;
+const BATGAUGE_COLOR_HIGH: Color = tailwind::GREEN.c500;
+const BATGAUGE_COLOR_MEDIUM: Color = tailwind::YELLOW.c500;
+const BATGAUGE_COLOR_LOW: Color = tailwind::RED.c500;
+
 const LABEL_COLOR: Color = tailwind::SLATE.c200;
 
 /// BST: ACPI Battery Status
@@ -86,8 +89,13 @@ impl Module for Battery {
         let title = Self::title_block("Battery Percentage:");
         Gauge::default()
             .block(title)
-            .gauge_style(BATGAUGE_COLOR)
+            .gauge_style(match bat_percent {
+                0..=20 => BATGAUGE_COLOR_LOW,
+                21..=60 => BATGAUGE_COLOR_MEDIUM,
+                _ => BATGAUGE_COLOR_HIGH,
+            })
             .percent(bat_percent.try_into().unwrap())
+            .use_unicode(true)
             .render(gauge_area, buf);
     }
 }

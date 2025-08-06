@@ -1,6 +1,6 @@
-use crate::Module;
 #[cfg(not(feature = "mock"))]
 use crate::acpi::{Acpi, AcpiMethodArgument};
+use crate::app::Module;
 
 use ratatui::{
     buffer::Buffer,
