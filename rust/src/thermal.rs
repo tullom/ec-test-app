@@ -257,7 +257,7 @@ impl Thermal {
             x_bounds: [0.0, 60.0],
             x_labels: self.time_labels(),
             y_axis: "Temperature (°C)",
-            y_bounds: [0.0, self.sensor.thresholds.critical as f64 + 5.0],
+            y_bounds: [0.0, self.sensor.thresholds.critical + 5.0],
             y_labels,
         };
         self.render_chart(area, buf, graph);
@@ -327,7 +327,7 @@ impl Thermal {
             x_bounds: [0.0, 60.0],
             x_labels: self.time_labels(),
             y_axis: "RPM",
-            y_bounds: [0.0, self.fan.rpm_bounds.max as f64],
+            y_bounds: [0.0, self.fan.rpm_bounds.max],
             y_labels,
         };
         self.render_chart(area, buf, graph);

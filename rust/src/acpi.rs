@@ -100,6 +100,7 @@ pub enum AcpiParseError {
 
 pub const ACPI_EVAL_INPUT_BUFFER_COMPLEX_SIGNATURE_EX: u32 = u32::from_le_bytes(*b"AeiF");
 
+impl std::error::Error for AcpiParseError {}
 impl std::fmt::Display for AcpiParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
@@ -299,9 +300,9 @@ impl Source for Acpi {
 
     fn get_threshold(&self, threshold: Threshold) -> Result<f64> {
         match threshold {
-            Threshold::On => Ok(dk_to_c(acpi_get_var(guid::FAN_ON_TEMP)?)),
-            Threshold::Ramping => Ok(dk_to_c(acpi_get_var(guid::FAN_RAMP_TEMP)?)),
-            Threshold::Max => Ok(dk_to_c(acpi_get_var(guid::FAN_MAX_TEMP))?),
+            Threshold::On => Ok(dk_to_c(acpi_get_var(guid::FAN_ON_TEMP)? as u32)),
+            Threshold::Ramping => Ok(dk_to_c(acpi_get_var(guid::FAN_RAMP_TEMP)? as u32)),
+            Threshold::Max => Ok(dk_to_c(acpi_get_var(guid::FAN_MAX_TEMP)? as u32)),
         }
     }
 
