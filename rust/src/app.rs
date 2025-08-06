@@ -93,7 +93,6 @@ impl App {
         let tick_rate = Duration::from_millis(1000);
         let mut last_tick = Instant::now();
 
-        self.update_tabs();
         while self.state == AppState::Running {
             terminal.draw(|frame| frame.render_widget(&self, frame.area()))?;
 
@@ -103,11 +102,10 @@ impl App {
             // Handle event if we got it, and only update tab states if we timed out
             if event::poll(timeout)? {
                 self.handle_events()?;
-            } else {
-                self.update_tabs();
             }
 
             if last_tick.elapsed() >= tick_rate {
+                self.update_tabs();
                 last_tick = Instant::now();
             }
         }
