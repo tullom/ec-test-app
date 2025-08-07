@@ -1,5 +1,6 @@
 use crate::app::Module;
 use crate::{Source, Threshold};
+use color_eyre::Result;
 
 use ratatui::{
     buffer::Buffer,
@@ -37,6 +38,12 @@ fn title_block(title: &str, padding: u16) -> Block<'_> {
         .fg(LABEL_COLOR)
 }
 
+// Combines a title string with a visual status indicator character
+fn title_str_with_status(title: &str, success: bool) -> String {
+    let status = if success { "✅" } else { "❌" };
+    format!("{title} {status}")
+}
+
 #[cfg(not(feature = "mock"))]
 fn data_source() -> Box<dyn Source> {
     Box::new(crate::acpi::Acpi::default())
@@ -47,47 +54,41 @@ fn data_source() -> Box<dyn Source> {
     Box::new(crate::mock::Mock::default())
 }
 
-fn get_sensor_tmp() -> f64 {
-    data_source().get_temperature().expect("Unable to get temperature")
+fn get_sensor_tmp() -> Result<f64> {
+    data_source().get_temperature()
 }
 
 // Always return mock data for thresholds until sensor GET/SET VAR and GET/SET THRS supported
-fn get_sensor_thresholds() -> SensorThresholds {
-    SensorThresholds {
+fn get_sensor_thresholds() -> Result<SensorThresholds> {
+    Ok(SensorThresholds {
         _warn_low: 13.0,
         warn_high: 35.0,
         prochot: 40.0,
         critical: 45.0,
-    }
+    })
 }
 
-fn get_fan_rpm() -> f64 {
-    data_source().get_rpm().expect("Unable to get fan RPM")
+fn get_fan_rpm() -> Result<f64> {
+    data_source().get_rpm()
 }
 
-fn set_fan_rpm(rpm: f64) {
-    data_source().set_rpm(rpm).expect("Unable to set fan RPM")
+fn set_fan_rpm(rpm: f64) -> Result<()> {
+    data_source().set_rpm(rpm)
 }
 
-fn get_fan_bounds() -> FanRpmBounds {
-    let min = data_source().get_min_rpm().expect("Unable to get min RPM");
-    let max = data_source().get_max_rpm().expect("Unable to get min RPM");
+fn get_fan_bounds() -> Result<FanRpmBounds> {
+    let min = data_source().get_min_rpm()?;
+    let max = data_source().get_max_rpm()?;
 
-    FanRpmBounds { min, max }
+    Ok(FanRpmBounds { min, max })
 }
 
-fn get_fan_levels() -> FanStateLevels {
-    let on = data_source()
-        .get_threshold(Threshold::On)
-        .expect("Unable to get ON threshold");
-    let ramping = data_source()
-        .get_threshold(Threshold::Ramping)
-        .expect("Unable to get RAMPING threshold");
-    let max = data_source()
-        .get_threshold(Threshold::Max)
-        .expect("Unable to get MAX threshold");
+fn get_fan_levels() -> Result<FanStateLevels> {
+    let on = data_source().get_threshold(Threshold::On)?;
+    let ramping = data_source().get_threshold(Threshold::Ramping)?;
+    let max = data_source().get_threshold(Threshold::Max)?;
 
-    FanStateLevels { on, ramping, max }
+    Ok(FanStateLevels { on, ramping, max })
 }
 
 // Properties for rendering a graph
@@ -141,15 +142,28 @@ struct SensorThresholds {
 #[derive(Default)]
 struct SensorState {
     skin_temp: f64,
+    temp_success: bool,
     thresholds: SensorThresholds,
+    thresholds_success: bool,
     samples: SampleBuf<f64, MAX_SAMPLES>,
 }
 
 impl SensorState {
     fn update(&mut self) {
-        self.skin_temp = get_sensor_tmp();
-        self.thresholds = get_sensor_thresholds();
-        self.samples.insert(self.skin_temp);
+        if let Ok(temp) = get_sensor_tmp() {
+            self.skin_temp = temp;
+            self.samples.insert(temp);
+            self.temp_success = true;
+        } else {
+            self.temp_success = false;
+        }
+
+        if let Ok(thresholds) = get_sensor_thresholds() {
+            self.thresholds = thresholds;
+            self.thresholds_success = true;
+        } else {
+            self.thresholds_success = false;
+        }
     }
 }
 
@@ -169,17 +183,37 @@ struct FanStateLevels {
 #[derive(Default)]
 struct FanState {
     rpm: f64,
+    rpm_success: bool,
     rpm_bounds: FanRpmBounds,
+    bounds_success: bool,
     state_levels: FanStateLevels,
+    levels_success: bool,
     samples: SampleBuf<u32, MAX_SAMPLES>,
 }
 
 impl FanState {
     fn update(&mut self) {
-        self.rpm = get_fan_rpm();
-        self.rpm_bounds = get_fan_bounds();
-        self.state_levels = get_fan_levels();
-        self.samples.insert(self.rpm as u32);
+        if let Ok(rpm) = get_fan_rpm() {
+            self.rpm = rpm;
+            self.samples.insert(rpm as u32);
+            self.rpm_success = true;
+        } else {
+            self.rpm_success = false;
+        }
+
+        if let Ok(rpm_bounds) = get_fan_bounds() {
+            self.rpm_bounds = rpm_bounds;
+            self.bounds_success = true;
+        } else {
+            self.bounds_success = false;
+        }
+
+        if let Ok(state_levels) = get_fan_levels() {
+            self.state_levels = state_levels;
+            self.levels_success = true;
+        } else {
+            self.levels_success = false;
+        }
     }
 }
 
@@ -214,7 +248,7 @@ impl Module for Thermal {
             && key.kind == KeyEventKind::Press
         {
             if let Ok(rpm) = self.rpm_input.value_and_reset().parse() {
-                set_fan_rpm(rpm);
+                let _ = set_fan_rpm(rpm);
             }
         } else {
             let _ = self.rpm_input.handle_event(evt);
@@ -268,7 +302,8 @@ impl Thermal {
     }
 
     fn render_sensor_stats(&self, area: Rect, buf: &mut Buffer) {
-        let stats_title = title_block("Live Temperature", 1);
+        let title_str = title_str_with_status("Live Temperature", self.sensor.temp_success);
+        let stats_title = title_block(&title_str, 1);
         let inner = stats_title.inner(area);
         stats_title.render(area, buf);
         let [temp_area, gauge_area] = area_split(inner, Direction::Vertical, 50, 50);
@@ -299,7 +334,8 @@ impl Thermal {
     }
 
     fn render_sensor_thresholds(&self, area: Rect, buf: &mut Buffer) {
-        let title = title_block("Thresholds", 1);
+        let title_str = title_str_with_status("Thresholds", self.sensor.thresholds_success);
+        let title = title_block(&title_str, 1);
         Paragraph::new(self.create_sensor_thresholds())
             .block(title)
             .render(area, buf);
@@ -343,7 +379,8 @@ impl Thermal {
     }
 
     fn render_fan_stats(&self, area: Rect, buf: &mut Buffer) {
-        let title = title_block("Live Fan RPM", 0);
+        let title_str = title_str_with_status("Live Fan RPM", self.fan.rpm_success && self.fan.bounds_success);
+        let title = title_block(&title_str, 0);
         let inner = title.inner(area);
         title.render(area, buf);
 
@@ -362,7 +399,8 @@ impl Thermal {
     }
 
     fn render_fan_levels(&self, area: Rect, buf: &mut Buffer) {
-        let title = title_block("Fan State Levels", 1);
+        let title_str = title_str_with_status("Fan State Levels", self.fan.levels_success);
+        let title = title_block(&title_str, 1);
         Paragraph::new(self.create_fan_levels()).block(title).render(area, buf);
     }
 
