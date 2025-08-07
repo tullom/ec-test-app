@@ -1,6 +1,20 @@
+use crate::{Source, Threshold};
+use color_eyre::{Result, eyre::eyre};
+
 // This module maps the data returned from call into the C-Library to RUST structures
 unsafe extern "C" {
     fn EvaluateAcpi(input: *const i8, input_len: usize, buffer: *mut u8, buf_len: &mut usize) -> i32;
+}
+
+mod guid {
+    pub const _SENSOR_CRT_TEMP: uuid::Uuid = uuid::uuid!("218246e7-baf6-45f1-aa13-07e4845256b8");
+    pub const _SENSOR_PROCHOT_TEMP: uuid::Uuid = uuid::uuid!("22dc52d2-fd0b-47ab-95b8-26552f9831a5");
+    pub const FAN_ON_TEMP: uuid::Uuid = uuid::uuid!("ba17b567-c368-48d5-bc6f-a312a41583c1");
+    pub const FAN_RAMP_TEMP: uuid::Uuid = uuid::uuid!("3a62688c-d95b-4d2d-bacc-90d7a5816bcd");
+    pub const FAN_MAX_TEMP: uuid::Uuid = uuid::uuid!("dcb758b1-f0fd-4ec7-b2c0-ef1e2a547b76");
+    pub const FAN_MIN_RPM: uuid::Uuid = uuid::uuid!("db261c77-934b-45e2-9742-256c62badb7a");
+    pub const FAN_MAX_RPM: uuid::Uuid = uuid::uuid!("5cf839df-8be7-42b9-9ac5-3403ca2c8a6a");
+    pub const FAN_CURRENT_RPM: uuid::Uuid = uuid::uuid!("adf95492-0776-4ffc-84f3-b6c8b5269683");
 }
 
 // A user-friendly ACPI input method containing a name and optional arguments
@@ -86,6 +100,7 @@ pub enum AcpiParseError {
 
 pub const ACPI_EVAL_INPUT_BUFFER_COMPLEX_SIGNATURE_EX: u32 = u32::from_le_bytes(*b"AeiF");
 
+impl std::error::Error for AcpiParseError {}
 impl std::fmt::Display for AcpiParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{self:?}")
@@ -189,9 +204,14 @@ impl TryFrom<Vec<u8>> for AcpiEvalOutputBufferV1 {
     }
 }
 
+#[derive(Default)]
 pub struct Acpi {}
 
 impl Acpi {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
     pub fn evaluate(name: &str, args: Option<&[AcpiMethodArgument]>) -> Result<AcpiEvalOutputBufferV1, AcpiParseError> {
         // Maximum number of arguments allowed is 7 as per spec
         if let Some(args) = args
@@ -222,4 +242,76 @@ impl Acpi {
 
         AcpiEvalOutputBufferV1::try_from(out_buf)
     }
+}
+
+fn acpi_get_var(guid: uuid::Uuid) -> Result<f64> {
+    let args = [AcpiMethodArgument::Int(1), AcpiMethodArgument::Guid(guid.to_bytes_le())];
+    let output = Acpi::evaluate("\\_SB.ECT0.TGVR", Some(&args))?;
+
+    if output.count != 2 {
+        Err(eyre!("GET_VAR({guid}) unrecognized output"))
+    } else if output.arguments[0].data_32 != 0 {
+        Err(eyre!("GET_VAR({guid}) unknown failure"))
+    } else {
+        Ok(f64::from(output.arguments[1].data_32))
+    }
+}
+
+fn acpi_set_var(guid: uuid::Uuid, value: f64) -> Result<()> {
+    let value = value as u32;
+
+    let args = [
+        AcpiMethodArgument::Int(1),
+        AcpiMethodArgument::Guid(guid.to_bytes_le()),
+        AcpiMethodArgument::Int(value),
+    ];
+    let output = Acpi::evaluate("\\_SB.ECT0.TSVR", Some(&args))?;
+
+    if output.count != 1 {
+        Err(eyre!("SET_VAR({guid}, {value}) unrecognized output"))
+    } else if output.arguments[0].data_32 != 0 {
+        Err(eyre!("SET_VAR({guid}, {value}) unknown failure"))
+    } else {
+        Ok(())
+    }
+}
+
+impl Source for Acpi {
+    fn get_temperature(&self) -> Result<f64> {
+        let output = Acpi::evaluate("\\_SB.ECT0.RTMP", None)?;
+        if output.count != 1 {
+            Err(eyre!("GET_TMP unrecognized output"))
+        } else {
+            Ok(dk_to_c(output.arguments[0].data_32))
+        }
+    }
+
+    fn get_rpm(&self) -> Result<f64> {
+        acpi_get_var(guid::FAN_CURRENT_RPM)
+    }
+
+    fn get_min_rpm(&self) -> Result<f64> {
+        acpi_get_var(guid::FAN_MIN_RPM)
+    }
+
+    fn get_max_rpm(&self) -> Result<f64> {
+        acpi_get_var(guid::FAN_MAX_RPM)
+    }
+
+    fn get_threshold(&self, threshold: Threshold) -> Result<f64> {
+        match threshold {
+            Threshold::On => Ok(dk_to_c(acpi_get_var(guid::FAN_ON_TEMP)? as u32)),
+            Threshold::Ramping => Ok(dk_to_c(acpi_get_var(guid::FAN_RAMP_TEMP)? as u32)),
+            Threshold::Max => Ok(dk_to_c(acpi_get_var(guid::FAN_MAX_TEMP)? as u32)),
+        }
+    }
+
+    fn set_rpm(&self, rpm: f64) -> Result<()> {
+        acpi_set_var(guid::FAN_CURRENT_RPM, rpm)
+    }
+}
+
+// Convert deciKelvin to degrees Celsius
+const fn dk_to_c(dk: u32) -> f64 {
+    (dk as f64 / 10.0) - 273.15
 }
