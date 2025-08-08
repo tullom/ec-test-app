@@ -5,7 +5,7 @@ use std::sync::{Mutex, OnceLock, atomic::AtomicI64};
 static SET_RPM: AtomicI64 = AtomicI64::new(-1);
 static SAMPLE: OnceLock<Mutex<(i64, i64)>> = OnceLock::new();
 
-#[derive(Default)]
+#[derive(Default, Copy, Clone)]
 pub struct Mock {}
 
 impl Mock {

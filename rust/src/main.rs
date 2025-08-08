@@ -1,9 +1,15 @@
-use ec_demo::app::App;
-
 use color_eyre::Result;
+use ec_demo::app::App;
 
 fn main() -> Result<()> {
     color_eyre::install()?;
     let terminal = ratatui::init();
-    App::default().run(terminal)
+
+    #[cfg(not(feature = "mock"))]
+    let source = ec_demo::acpi::Acpi::default();
+
+    #[cfg(feature = "mock")]
+    let source = ec_demo::mock::Mock::default();
+
+    App::new(source).run(terminal)
 }
