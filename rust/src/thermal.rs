@@ -44,22 +44,12 @@ fn title_str_with_status(title: &str, success: bool) -> String {
     format!("{title} {status}")
 }
 
-#[cfg(not(feature = "mock"))]
-fn data_source() -> Box<dyn Source> {
-    Box::new(crate::acpi::Acpi::default())
-}
-
-#[cfg(feature = "mock")]
-fn data_source() -> Box<dyn Source> {
-    Box::new(crate::mock::Mock::default())
-}
-
-fn get_sensor_tmp() -> Result<f64> {
-    data_source().get_temperature()
+fn get_sensor_tmp<S: Source>(source: &S) -> Result<f64> {
+    source.get_temperature()
 }
 
 // Always return mock data for thresholds until sensor GET/SET VAR and GET/SET THRS supported
-fn get_sensor_thresholds() -> Result<SensorThresholds> {
+fn get_sensor_thresholds<S: Source>(_source: &S) -> Result<SensorThresholds> {
     Ok(SensorThresholds {
         _warn_low: 13.0,
         warn_high: 35.0,
@@ -68,25 +58,25 @@ fn get_sensor_thresholds() -> Result<SensorThresholds> {
     })
 }
 
-fn get_fan_rpm() -> Result<f64> {
-    data_source().get_rpm()
+fn get_fan_rpm<S: Source>(source: &S) -> Result<f64> {
+    source.get_rpm()
 }
 
-fn set_fan_rpm(rpm: f64) -> Result<()> {
-    data_source().set_rpm(rpm)
+fn set_fan_rpm<S: Source>(source: &S, rpm: f64) -> Result<()> {
+    source.set_rpm(rpm)
 }
 
-fn get_fan_bounds() -> Result<FanRpmBounds> {
-    let min = data_source().get_min_rpm()?;
-    let max = data_source().get_max_rpm()?;
+fn get_fan_bounds<S: Source>(source: &S) -> Result<FanRpmBounds> {
+    let min = source.get_min_rpm()?;
+    let max = source.get_max_rpm()?;
 
     Ok(FanRpmBounds { min, max })
 }
 
-fn get_fan_levels() -> Result<FanStateLevels> {
-    let on = data_source().get_threshold(Threshold::On)?;
-    let ramping = data_source().get_threshold(Threshold::Ramping)?;
-    let max = data_source().get_threshold(Threshold::Max)?;
+fn get_fan_levels<S: Source>(source: &S) -> Result<FanStateLevels> {
+    let on = source.get_threshold(Threshold::On)?;
+    let ramping = source.get_threshold(Threshold::Ramping)?;
+    let max = source.get_threshold(Threshold::Max)?;
 
     Ok(FanStateLevels { on, ramping, max })
 }
@@ -149,8 +139,8 @@ struct SensorState {
 }
 
 impl SensorState {
-    fn update(&mut self) {
-        if let Ok(temp) = get_sensor_tmp() {
+    fn update<S: Source>(&mut self, source: &S) {
+        if let Ok(temp) = get_sensor_tmp(source) {
             self.skin_temp = temp;
             self.samples.insert(temp);
             self.temp_success = true;
@@ -158,7 +148,7 @@ impl SensorState {
             self.temp_success = false;
         }
 
-        if let Ok(thresholds) = get_sensor_thresholds() {
+        if let Ok(thresholds) = get_sensor_thresholds(source) {
             self.thresholds = thresholds;
             self.thresholds_success = true;
         } else {
@@ -192,8 +182,8 @@ struct FanState {
 }
 
 impl FanState {
-    fn update(&mut self) {
-        if let Ok(rpm) = get_fan_rpm() {
+    fn update<S: Source>(&mut self, source: &S) {
+        if let Ok(rpm) = get_fan_rpm(source) {
             self.rpm = rpm;
             self.samples.insert(rpm as u32);
             self.rpm_success = true;
@@ -201,14 +191,14 @@ impl FanState {
             self.rpm_success = false;
         }
 
-        if let Ok(rpm_bounds) = get_fan_bounds() {
+        if let Ok(rpm_bounds) = get_fan_bounds(source) {
             self.rpm_bounds = rpm_bounds;
             self.bounds_success = true;
         } else {
             self.bounds_success = false;
         }
 
-        if let Ok(state_levels) = get_fan_levels() {
+        if let Ok(state_levels) = get_fan_levels(source) {
             self.state_levels = state_levels;
             self.levels_success = true;
         } else {
@@ -217,22 +207,22 @@ impl FanState {
     }
 }
 
-#[derive(Default)]
-pub struct Thermal {
+pub struct Thermal<S: Source> {
     rpm_input: Input,
     sensor: SensorState,
     fan: FanState,
     t: usize,
+    source: S,
 }
 
-impl Module for Thermal {
+impl<S: Source> Module for Thermal<S> {
     fn title(&self) -> &'static str {
         "Thermal Information"
     }
 
     fn update(&mut self) {
-        self.sensor.update();
-        self.fan.update();
+        self.sensor.update(&self.source);
+        self.fan.update(&self.source);
         self.t += 1;
     }
 
@@ -248,7 +238,7 @@ impl Module for Thermal {
             && key.kind == KeyEventKind::Press
         {
             if let Ok(rpm) = self.rpm_input.value_and_reset().parse() {
-                let _ = set_fan_rpm(rpm);
+                let _ = set_fan_rpm(&self.source, rpm);
             }
         } else {
             let _ = self.rpm_input.handle_event(evt);
@@ -256,9 +246,16 @@ impl Module for Thermal {
     }
 }
 
-impl Thermal {
-    pub fn new() -> Self {
-        let mut inst = Self::default();
+impl<S: Source> Thermal<S> {
+    pub fn new(source: S) -> Self {
+        let mut inst = Self {
+            rpm_input: Default::default(),
+            sensor: Default::default(),
+            fan: Default::default(),
+            t: Default::default(),
+            source,
+        };
+
         inst.update();
         inst
     }

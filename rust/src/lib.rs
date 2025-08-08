@@ -13,7 +13,7 @@ pub mod thermal;
 pub mod ucsi;
 
 /// Trait implemented by all data sources
-pub trait Source {
+pub trait Source: Clone {
     /// Get current temperature
     fn get_temperature(&self) -> Result<f64>;
 

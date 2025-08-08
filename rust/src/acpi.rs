@@ -204,7 +204,7 @@ impl TryFrom<Vec<u8>> for AcpiEvalOutputBufferV1 {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Copy, Clone)]
 pub struct Acpi {}
 
 impl Acpi {

@@ -1,7 +1,7 @@
-use crate::battery::Battery;
 use crate::rtc::Rtc;
 use crate::thermal::Thermal;
 use crate::ucsi::Ucsi;
+use crate::{Source, battery::Battery};
 
 use color_eyre::Result;
 
@@ -16,8 +16,11 @@ use ratatui::{
     widgets::{Block, Padding, Tabs, Widget},
 };
 
+use std::marker::PhantomData;
 use std::{
+    cell::RefCell,
     collections::BTreeMap,
+    rc::Rc,
     time::{Duration, Instant},
 };
 
@@ -59,17 +62,25 @@ enum SelectedTab {
 }
 
 /// The main application which holds the state and logic of the application.
-pub struct App {
+pub struct App<S: Source> {
     state: AppState,
     selected_tab: SelectedTab,
     modules: BTreeMap<SelectedTab, Box<dyn Module>>,
+    phantom: PhantomData<S>,
 }
 
-impl Default for App {
-    fn default() -> Self {
+impl<S: Source + Clone + 'static> App<S> {
+    /// Construct a new instance of [`App`].
+    pub fn new(source: S) -> Self {
         let mut modules: BTreeMap<SelectedTab, Box<dyn Module>> = BTreeMap::new();
+        let source = Rc::new(RefCell::new(source));
 
-        modules.insert(SelectedTab::TabThermal, Box::new(Thermal::new()));
+        let thermal_source = Rc::clone(&source);
+
+        modules.insert(
+            SelectedTab::TabThermal,
+            Box::new(Thermal::new(thermal_source.borrow().clone())),
+        );
         modules.insert(SelectedTab::TabRTC, Box::new(Rtc::new()));
         modules.insert(SelectedTab::TabUCSI, Box::new(Ucsi::new()));
         modules.insert(SelectedTab::TabBattery, Box::new(Battery::new()));
@@ -78,14 +89,8 @@ impl Default for App {
             state: Default::default(),
             selected_tab: Default::default(),
             modules,
+            phantom: PhantomData,
         }
-    }
-}
-
-impl App {
-    /// Construct a new instance of [`App`].
-    pub fn new() -> Self {
-        Self::default()
     }
 
     /// Run the application's main loop.
@@ -177,7 +182,7 @@ impl App {
     }
 }
 
-impl Widget for &App {
+impl<S: Source + 'static> Widget for &App<S> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         use Constraint::{Length, Min};
         let vertical = Layout::vertical([Length(1), Min(0), Length(1)]);
@@ -193,7 +198,7 @@ impl Widget for &App {
     }
 }
 
-impl Drop for App {
+impl<S: Source> Drop for App<S> {
     fn drop(&mut self) {
         ratatui::restore();
     }
