@@ -18,7 +18,7 @@ const LABEL_COLOR: Color = tailwind::SLATE.c200;
 const MAX_SAMPLES: usize = 60;
 
 // Split an area in a direction with given percentages
-fn area_split(area: Rect, direction: Direction, first: u16, second: u16) -> [Rect; 2] {
+pub(crate) fn area_split(area: Rect, direction: Direction, first: u16, second: u16) -> [Rect; 2] {
     Layout::default()
         .direction(direction)
         .constraints([Constraint::Percentage(first), Constraint::Percentage(second)])

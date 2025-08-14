@@ -3,12 +3,14 @@ use crate::acpi::{Acpi, AcpiEvalOutputBufferV1};
 use crate::app::Module;
 
 use crossterm::event::Event;
+use ratatui::prelude::Direction;
+use ratatui::widgets::canvas::{self, Map, MapResolution};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Stylize, palette::tailwind},
+    style::{Color, Style, Stylize, palette::tailwind},
     text::Line,
-    widgets::{Block, Borders, Gauge, Padding, Paragraph, Widget},
+    widgets::{Bar, BarChart, BarGroup, Block, Borders, Gauge, Padding, Paragraph, Widget},
 };
 
 const BATGAUGE_COLOR_HIGH: Color = tailwind::GREEN.c500;
@@ -59,7 +61,7 @@ pub struct Battery {}
 
 impl Module for Battery {
     fn title(&self) -> &'static str {
-        "Battery Information"
+        "Battery + PSU Information"
     }
 
     fn update(&mut self) {}
@@ -67,6 +69,7 @@ impl Module for Battery {
     fn handle_event(&mut self, _evt: &Event) {}
 
     fn render(&self, area: Rect, buf: &mut Buffer) {
+        let [text_area, img_area] = crate::thermal::area_split(area, Direction::Horizontal, 75, 25);
         let bat_status = Self::get_bst();
         //let bat_info = Self::get_bix();
         //let bat_percent = (bat_status.capacity / bat_info.design_capacity) * 100;
@@ -86,7 +89,7 @@ impl Module for Battery {
         */
 
         let gauge_area = Rect::new(area.x, area.y + 20, area.width / 2, 4);
-        let title = Self::title_block("Battery Percentage:");
+        let title = Self::title_block("");
         Gauge::default()
             .block(title)
             .gauge_style(match bat_percent {
@@ -97,6 +100,62 @@ impl Module for Battery {
             .percent(bat_percent.try_into().unwrap())
             .use_unicode(true)
             .render(gauge_area, buf);
+
+        BarChart::default()
+            .block(
+                Block::bordered()
+                    .title_alignment(ratatui::layout::Alignment::Center)
+                    .title("BarChart"),
+            )
+            .bar_width(img_area.width - 2)
+            .bar_gap(0)
+            .group_gap(0)
+            .bar_style(Style::new().green().on_white())
+            .value_style(Style::new().red().bold())
+            .label_style(Style::new().white())
+            .data(&[("Battery level", 99)])
+            .max(100)
+            .render(img_area, buf);
+        canvas::Canvas::default()
+            // .block(Block::bordered().title("Canvas"))
+            .marker(ratatui::symbols::Marker::Block)
+            // .x_bounds([-180.0, 180.0])
+            // .y_bounds([-90.0, 90.0])
+            .paint(|ctx| {
+                ctx.draw(&canvas::Rectangle {
+                    x: img_area.x.into(),
+                    y: img_area.y.into(),
+                    width: (img_area.width - 2).into(),
+                    height: (img_area.height - 2).into(),
+                    color: Color::Red,
+                });
+            })
+            .render(img_area, buf);
+        let text = vec![
+            Line::from(vec![
+                ratatui::text::Span::raw("First"),
+                ratatui::text::Span::styled("line", Style::new().green().italic()),
+                ".".into(),
+            ]),
+            Line::from("Second line".red()),
+            "Third line".into(),
+        ];
+
+        // Split vertically into 3 chunks: top, middle, bottom
+        let vertical_chunks = ratatui::layout::Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                ratatui::layout::Constraint::Percentage(40),
+                ratatui::layout::Constraint::Percentage(20),
+                ratatui::layout::Constraint::Percentage(40),
+            ])
+            .split(img_area);
+
+        Paragraph::new(text)
+            // .style(Style::new().white().on_black())
+            .alignment(ratatui::layout::Alignment::Center)
+            .wrap(ratatui::widgets::Wrap { trim: true })
+            .render(vertical_chunks[1], buf);
     }
 }
 
