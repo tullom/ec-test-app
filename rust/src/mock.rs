@@ -1,6 +1,10 @@
-use crate::{Source, Threshold};
+use crate::{Source, Threshold, common};
 use color_eyre::Result;
-use std::sync::{Mutex, OnceLock, atomic::AtomicI64};
+use std::sync::{
+    Mutex, OnceLock,
+    atomic::Ordering,
+    atomic::{AtomicI64, AtomicU32},
+};
 
 static SET_RPM: AtomicI64 = AtomicI64::new(-1);
 static SAMPLE: OnceLock<Mutex<(i64, i64)>> = OnceLock::new();
@@ -23,7 +27,7 @@ impl Source for Mock {
             sample.1 *= -1;
         }
 
-        Ok(dk_to_c(sample.0 as u32))
+        Ok(common::dk_to_c(sample.0 as u32))
     }
 
     fn get_rpm(&self) -> Result<f64> {
@@ -31,7 +35,7 @@ impl Source for Mock {
         use std::sync::{Mutex, OnceLock};
 
         // For mock, if user sets RPM, we just always return what was last set instead of sin wave
-        let set_rpm = SET_RPM.load(std::sync::atomic::Ordering::Relaxed);
+        let set_rpm = SET_RPM.load(Ordering::Relaxed);
         if set_rpm >= 0 {
             Ok(set_rpm as f64)
         } else {
@@ -70,12 +74,71 @@ impl Source for Mock {
     }
 
     fn set_rpm(&self, rpm: f64) -> Result<()> {
-        SET_RPM.store(rpm as i64, std::sync::atomic::Ordering::Relaxed);
+        SET_RPM.store(rpm as i64, Ordering::Relaxed);
         Ok(())
     }
-}
 
-// Convert deciKelvin to degrees Celsius
-const fn dk_to_c(dk: u32) -> f64 {
-    (dk as f64 / 10.0) - 273.15
+    fn get_bst(&self) -> Result<crate::battery::BstData> {
+        static STATE: AtomicU32 = AtomicU32::new(2);
+        const MAX_CAPACITY: u32 = 10000;
+        static CAPACITY: AtomicU32 = AtomicU32::new(0);
+        const RATE: u32 = 1000;
+
+        let state = STATE.load(Ordering::Relaxed);
+        let capacity = CAPACITY.load(Ordering::Relaxed);
+        let mut new_capacity = capacity;
+
+        // We are only using atomics to satisfy borrow-checker
+        // Thus we update non-atomically for simplicity
+        if state == 2 {
+            new_capacity += RATE;
+            if new_capacity > MAX_CAPACITY {
+                STATE.store(1, Ordering::Relaxed);
+            }
+        } else {
+            new_capacity -= RATE;
+            if new_capacity < RATE {
+                STATE.store(2, Ordering::Relaxed);
+            }
+        }
+        CAPACITY.store(new_capacity.clamp(0, MAX_CAPACITY), Ordering::Relaxed);
+
+        Ok(crate::battery::BstData {
+            state: crate::battery::ChargeState::try_from(state)?,
+            rate: 3839,
+            capacity,
+            voltage: 12569,
+        })
+    }
+
+    fn get_bix(&self) -> Result<crate::battery::BixData> {
+        Ok(crate::battery::BixData {
+            revision: 1,
+            power_unit: crate::battery::PowerUnit::Mw,
+            design_capacity: 10000,
+            last_full_capacity: 9890,
+            battery_technology: crate::battery::BatteryTechnology::Primary,
+            design_voltage: 13000,
+            warning_capacity: 5000,
+            low_capacity: 3000,
+            cycle_count: 1337,
+            accuracy: 80000,
+            max_sample_time: 42,
+            min_sample_time: 7,
+            max_average_interval: 5,
+            min_average_interval: 1,
+            capacity_gran1: 10,
+            capacity_gran2: 10,
+            model_number: "42.0".as_bytes().to_owned(),
+            serial_number: "123-45-678".as_bytes().to_owned(),
+            battery_type: "Li-ion".as_bytes().to_owned(),
+            oem_info: "Battery Bros.".as_bytes().to_owned(),
+            swap_cap: crate::battery::SwapCap::ColdSwappable,
+        })
+    }
+
+    fn set_btp(&self, _trippoint: u32) -> Result<()> {
+        // Do nothing for mock
+        Ok(())
+    }
 }

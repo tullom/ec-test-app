@@ -1,4 +1,4 @@
-use crate::{Source, Threshold};
+use crate::{Source, Threshold, common};
 use color_eyre::{Result, eyre::eyre};
 
 // This module maps the data returned from call into the C-Library to RUST structures
@@ -282,7 +282,7 @@ impl Source for Acpi {
         if output.count != 1 {
             Err(eyre!("GET_TMP unrecognized output"))
         } else {
-            Ok(dk_to_c(output.arguments[0].data_32))
+            Ok(common::dk_to_c(output.arguments[0].data_32))
         }
     }
 
@@ -300,18 +300,67 @@ impl Source for Acpi {
 
     fn get_threshold(&self, threshold: Threshold) -> Result<f64> {
         match threshold {
-            Threshold::On => Ok(dk_to_c(acpi_get_var(guid::FAN_ON_TEMP)? as u32)),
-            Threshold::Ramping => Ok(dk_to_c(acpi_get_var(guid::FAN_RAMP_TEMP)? as u32)),
-            Threshold::Max => Ok(dk_to_c(acpi_get_var(guid::FAN_MAX_TEMP)? as u32)),
+            Threshold::On => Ok(common::dk_to_c(acpi_get_var(guid::FAN_ON_TEMP)? as u32)),
+            Threshold::Ramping => Ok(common::dk_to_c(acpi_get_var(guid::FAN_RAMP_TEMP)? as u32)),
+            Threshold::Max => Ok(common::dk_to_c(acpi_get_var(guid::FAN_MAX_TEMP)? as u32)),
         }
     }
 
     fn set_rpm(&self, rpm: f64) -> Result<()> {
         acpi_set_var(guid::FAN_CURRENT_RPM, rpm)
     }
-}
 
-// Convert deciKelvin to degrees Celsius
-const fn dk_to_c(dk: u32) -> f64 {
-    (dk as f64 / 10.0) - 273.15
+    fn get_bst(&self) -> Result<crate::battery::BstData> {
+        let data = Acpi::evaluate("\\_SB.ECT0.TBST", None)?;
+
+        // We are expecting 4 32-bit values
+        if data.count != 4 {
+            Err(eyre!("GET_BST unrecognized output"))
+        } else {
+            Ok(crate::battery::BstData {
+                state: crate::battery::ChargeState::try_from(data.arguments[0].data_32)?,
+                rate: data.arguments[1].data_32,
+                capacity: data.arguments[2].data_32,
+                voltage: data.arguments[3].data_32,
+            })
+        }
+    }
+
+    fn get_bix(&self) -> Result<crate::battery::BixData> {
+        let data = Acpi::evaluate("\\_SB.ECT0.TBIX", None)?;
+        // We are expecting 21 arguments
+        if data.count != 21 {
+            Err(eyre!("GET_BIX unrecognized output"))
+        } else {
+            Ok(crate::battery::BixData {
+                revision: data.arguments[0].data_32,
+                power_unit: crate::battery::PowerUnit::try_from(data.arguments[1].data_32)?,
+                design_capacity: data.arguments[2].data_32,
+                last_full_capacity: data.arguments[3].data_32,
+                battery_technology: crate::battery::BatteryTechnology::try_from(data.arguments[4].data_32)?,
+                design_voltage: data.arguments[5].data_32,
+                warning_capacity: data.arguments[6].data_32,
+                low_capacity: data.arguments[7].data_32,
+                cycle_count: data.arguments[8].data_32,
+                accuracy: data.arguments[9].data_32,
+                max_sample_time: data.arguments[10].data_32,
+                min_sample_time: data.arguments[11].data_32,
+                max_average_interval: data.arguments[12].data_32,
+                min_average_interval: data.arguments[13].data_32,
+                capacity_gran1: data.arguments[14].data_32,
+                capacity_gran2: data.arguments[15].data_32,
+                model_number: data.arguments[16].data.clone(),
+                serial_number: data.arguments[17].data.clone(),
+                battery_type: data.arguments[18].data.clone(),
+                oem_info: data.arguments[19].data.clone(),
+                swap_cap: crate::battery::SwapCap::try_from(data.arguments[20].data_32)?,
+            })
+        }
+    }
+
+    fn set_btp(&self, trippoint: u32) -> Result<()> {
+        // No return value is expected according to ACPI spec
+        let _ = Acpi::evaluate("\\_SB.ECT0.TBTP", Some(&[AcpiMethodArgument::Int(trippoint)]))?;
+        Ok(())
+    }
 }
