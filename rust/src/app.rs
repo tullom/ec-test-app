@@ -76,6 +76,7 @@ impl<S: Source + Clone + 'static> App<S> {
         let source = Rc::new(RefCell::new(source));
 
         let thermal_source = Rc::clone(&source);
+        let battery_source = Rc::clone(&source);
 
         modules.insert(
             SelectedTab::TabThermal,
@@ -83,7 +84,10 @@ impl<S: Source + Clone + 'static> App<S> {
         );
         modules.insert(SelectedTab::TabRTC, Box::new(Rtc::new()));
         modules.insert(SelectedTab::TabUCSI, Box::new(Ucsi::new()));
-        modules.insert(SelectedTab::TabBattery, Box::new(Battery::new()));
+        modules.insert(
+            SelectedTab::TabBattery,
+            Box::new(Battery::new(battery_source.borrow().clone())),
+        );
 
         Self {
             state: Default::default(),

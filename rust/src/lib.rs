@@ -8,6 +8,7 @@ pub mod mock;
 
 pub mod app;
 pub mod battery;
+pub mod common;
 pub mod rtc;
 pub mod thermal;
 pub mod ucsi;
@@ -31,6 +32,15 @@ pub trait Source: Clone {
 
     /// Set fan RPM limit
     fn set_rpm(&self, rpm: f64) -> Result<()>;
+
+    /// Get battery BST data
+    fn get_bst(&self) -> Result<battery::BstData>;
+
+    /// Get battery BIX data
+    fn get_bix(&self) -> Result<battery::BixData>;
+
+    /// Set battery trippoint
+    fn set_btp(&self, trippoint: u32) -> Result<()>;
 }
 
 pub enum Threshold {
