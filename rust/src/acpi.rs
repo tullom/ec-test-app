@@ -1,5 +1,6 @@
 use crate::{Source, Threshold, common};
 use color_eyre::{Result, eyre::eyre};
+use std::ffi;
 
 // This module maps the data returned from call into the C-Library to RUST structures
 unsafe extern "C" {
@@ -15,6 +16,14 @@ mod guid {
     pub const FAN_MIN_RPM: uuid::Uuid = uuid::uuid!("db261c77-934b-45e2-9742-256c62badb7a");
     pub const FAN_MAX_RPM: uuid::Uuid = uuid::uuid!("5cf839df-8be7-42b9-9ac5-3403ca2c8a6a");
     pub const FAN_CURRENT_RPM: uuid::Uuid = uuid::uuid!("adf95492-0776-4ffc-84f3-b6c8b5269683");
+}
+
+fn cstr_bytes_to_string(raw: &[u8]) -> Result<String> {
+    Ok(ffi::CStr::from_bytes_until_nul(raw)
+        .map_err(|_| color_eyre::eyre::eyre!("Invalid byte slice"))?
+        .to_str()
+        .map_err(|_| color_eyre::eyre::eyre!("String contains invalid characters"))?
+        .to_owned())
 }
 
 // A user-friendly ACPI input method containing a name and optional arguments
@@ -46,7 +55,7 @@ impl TryFrom<AcpiMethodArgument> for AcpiMethodArgumentV1 {
                 data: g.to_vec(),
             },
             AcpiMethodArgument::Str(s) => {
-                let cstr = std::ffi::CString::new(s).map_err(|_| AcpiParseError::InvalidFormat)?;
+                let cstr = ffi::CString::new(s).map_err(|_| AcpiParseError::InvalidFormat)?;
                 Self {
                     type_: 1,
                     data_length: cstr.count_bytes() as u16 + 1,
@@ -349,10 +358,10 @@ impl Source for Acpi {
                 min_average_interval: data.arguments[13].data_32,
                 capacity_gran1: data.arguments[14].data_32,
                 capacity_gran2: data.arguments[15].data_32,
-                model_number: data.arguments[16].data.clone(),
-                serial_number: data.arguments[17].data.clone(),
-                battery_type: data.arguments[18].data.clone(),
-                oem_info: data.arguments[19].data.clone(),
+                model_number: cstr_bytes_to_string(&data.arguments[16].data)?,
+                serial_number: cstr_bytes_to_string(&data.arguments[17].data)?,
+                battery_type: cstr_bytes_to_string(&data.arguments[18].data)?,
+                oem_info: cstr_bytes_to_string(&data.arguments[19].data)?,
                 swap_cap: crate::battery::SwapCap::try_from(data.arguments[20].data_32)?,
             })
         }

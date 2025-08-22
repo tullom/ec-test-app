@@ -129,10 +129,10 @@ impl Source for Mock {
             min_average_interval: 1,
             capacity_gran1: 10,
             capacity_gran2: 10,
-            model_number: "42.0".as_bytes().to_owned(),
-            serial_number: "123-45-678".as_bytes().to_owned(),
-            battery_type: "Li-ion".as_bytes().to_owned(),
-            oem_info: "Battery Bros.".as_bytes().to_owned(),
+            model_number: "42.0".to_string(),
+            serial_number: "123-45-678".to_string(),
+            battery_type: "Li-ion".to_string(),
+            oem_info: "Battery Bros.".to_string(),
             swap_cap: crate::battery::SwapCap::ColdSwappable,
         })
     }
