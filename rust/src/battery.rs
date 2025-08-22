@@ -165,10 +165,10 @@ pub struct BixData {
     pub min_average_interval: u32,
     pub capacity_gran1: u32,
     pub capacity_gran2: u32,
-    pub model_number: Vec<u8>,
-    pub serial_number: Vec<u8>,
-    pub battery_type: Vec<u8>,
-    pub oem_info: Vec<u8>,
+    pub model_number: String,
+    pub serial_number: String,
+    pub battery_type: String,
+    pub oem_info: String,
     pub swap_cap: SwapCap,
 }
 
@@ -370,22 +370,10 @@ impl<S: Source> Battery<S> {
                 self.bix_data.capacity_gran2,
                 power_unit.as_capacity_str()
             )),
-            Line::raw(format!(
-                "Model Number:           {}",
-                String::from_utf8_lossy(&self.bix_data.model_number)
-            )),
-            Line::raw(format!(
-                "Serial Number:          {}",
-                String::from_utf8_lossy(&self.bix_data.serial_number)
-            )),
-            Line::raw(format!(
-                "Battery Type:           {}",
-                String::from_utf8_lossy(&self.bix_data.battery_type)
-            )),
-            Line::raw(format!(
-                "OEM Info:               {}",
-                String::from_utf8_lossy(&self.bix_data.oem_info)
-            )),
+            Line::raw(format!("Model Number:           {}", self.bix_data.model_number)),
+            Line::raw(format!("Serial Number:          {}", self.bix_data.serial_number)),
+            Line::raw(format!("Battery Type:           {}", self.bix_data.battery_type)),
+            Line::raw(format!("OEM Info:               {}", self.bix_data.oem_info)),
             Line::raw(format!("Swapping Capability:    {}", self.bix_data.swap_cap.as_str())),
         ]
     }
@@ -452,7 +440,10 @@ impl<S: Source> Battery<S> {
     }
 
     fn render_battery(&self, area: Rect, buf: &mut Buffer) {
-        let bat_percent = ((self.bst_data.capacity * 100) / self.bix_data.design_capacity).clamp(0, 100);
+        let bat_percent = (self.bst_data.capacity * 100)
+            .checked_div(self.bix_data.design_capacity)
+            .unwrap_or(0)
+            .clamp(0, 100);
 
         let [tip_area, battery_area] = common::area_split(area, Direction::Vertical, 10, 90);
         let bar = Bar::default()
